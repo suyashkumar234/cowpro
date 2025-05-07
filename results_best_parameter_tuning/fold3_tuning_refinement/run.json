@@ -1,0 +1,382 @@
+{
+  "artifacts": [],
+  "command": "main",
+  "experiment": {
+    "base_dir": "E:\\Suyash\\cowpro",
+    "dependencies": [
+      "numpy==1.22.0",
+      "sacred==0.7.5"
+    ],
+    "mainfile": "config_ssl_upload.py",
+    "name": "mySSL",
+    "repositories": [
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      },
+      {
+        "commit": "f0d966c4c6b4329cff40b13174c945437cb4c0ae",
+        "dirty": true,
+        "url": "https://github.com/sadimanna/cowpro.git"
+      }
+    ],
+    "sources": [
+      [
+        "config_ssl_upload.py",
+        "_sources\\config_ssl_upload_05686a43857e5af163c201ef6ffbf150.py"
+      ],
+      [
+        "dataloaders\\GenericSuperDatasetv2.py",
+        "_sources\\GenericSuperDatasetv2_05b2f5b63a24bcde3eb161e4900a4e77.py"
+      ],
+      [
+        "dataloaders\\ManualAnnoDatasetv2.py",
+        "_sources\\ManualAnnoDatasetv2_fdac36530dd8d97f4070a29dbaf265fb.py"
+      ],
+      [
+        "dataloaders\\__init__.py",
+        "_sources\\__init___d41d8cd98f00b204e9800998ecf8427e.py"
+      ],
+      [
+        "dataloaders\\augutils.py",
+        "_sources\\augutils_e5bb8676c76b5677eede9fb102ce032f.py"
+      ],
+      [
+        "dataloaders\\common.py",
+        "_sources\\common_1ed435f31b0cb1e8a34a8cd3ff5c5c9a.py"
+      ],
+      [
+        "dataloaders\\dataset_utils.py",
+        "_sources\\dataset_utils_7045ac48cf1162453662639d40e8350c.py"
+      ],
+      [
+        "dataloaders\\dev_customized_med.py",
+        "_sources\\dev_customized_med_47fa47166d48afa5d8619a0ac731bebb.py"
+      ],
+      [
+        "dataloaders\\image_transforms.py",
+        "_sources\\image_transforms_476e81121193d860b2b882bd8a3a67a3.py"
+      ],
+      [
+        "dataloaders\\niftiio.py",
+        "_sources\\niftiio_4c8ed807cb7418ffafcd19864a292d1d.py"
+      ],
+      [
+        "models\\__init__.py",
+        "_sources\\__init___d41d8cd98f00b204e9800998ecf8427e.py"
+      ],
+      [
+        "models\\alpmodule.py",
+        "_sources\\alpmodule_2495df429c260ccf73af21647804d9ad.py"
+      ],
+      [
+        "models\\alpmodule2.py",
+        "_sources\\alpmodule2_f062a0ec9f73748e3a9f59eea59c4d85.py"
+      ],
+      [
+        "models\\alpmodule3.py",
+        "_sources\\alpmodule3_84dd0df25e5ead9f5a88df038cf60410.py"
+      ],
+      [
+        "models\\alpmodule_gmrd.py",
+        "_sources\\alpmodule_gmrd_92b6b663859beea6fa22d8e0a9e0ea05.py"
+      ],
+      [
+        "models\\grid_proto_fewshot.py",
+        "_sources\\grid_proto_fewshot_9f12e8b8a500180b8caa9421290ca0d8.py"
+      ],
+      [
+        "models\\grid_proto_fewshot_gmrd.py",
+        "_sources\\grid_proto_fewshot_gmrd_952913632dfeef7390d6026674c53a44.py"
+      ],
+      [
+        "models\\grid_proto_fewshot_update_CRFRNN.py",
+        "_sources\\grid_proto_fewshot_update_CRFRNN_0bd17d2e57e0ecd20f774b733aec9f59.py"
+      ],
+      [
+        "models\\grid_proto_fewshot_update_GMM.py",
+        "_sources\\grid_proto_fewshot_update_GMM_9b77c8387f82461ee501afc9618baae1.py"
+      ],
+      [
+        "models\\grid_proto_fewshot_update_gmm_proto_extraction.py",
+        "_sources\\grid_proto_fewshot_update_gmm_proto_extraction_8fea76be30df2f0424ae8a886cc68cc9.py"
+      ],
+      [
+        "models\\grid_proto_fewshot_updated.py",
+        "_sources\\grid_proto_fewshot_updated_7654b5f65cf5f19886534d58e9ec8738.py"
+      ],
+      [
+        "models\\grid_proto_fewshot_updated2.py",
+        "_sources\\grid_proto_fewshot_updated2_ff1d7f82b0322cca45070501117defb1.py"
+      ],
+      [
+        "reqirements.py",
+        "_sources\\reqirements_1c94ae84ed75b241a4a567e4186b8bf3.py"
+      ],
+      [
+        "s.py",
+        "_sources\\s_54eb5adc2b90ec3c17e699c9a1b0ef51.py"
+      ],
+      [
+        "training.py",
+        "_sources\\training_c2d0c6bfb8e28334cca3a8c42ff83517.py"
+      ],
+      [
+        "trainval.py",
+        "_sources\\trainval_1f0918361e4b3126951d604cd8ced81d.py"
+      ],
+      [
+        "trial.py",
+        "_sources\\trial_fc1ccc37595be53764c0274cd45ef931.py"
+      ],
+      [
+        "util\\__init__.py",
+        "_sources\\__init___9801acb9da4dacedc4f668f2b63d707d.py"
+      ],
+      [
+        "util\\metric.py",
+        "_sources\\metric_e20dbe2f7ed1260451cb84461bdc0a67.py"
+      ],
+      [
+        "util\\utils.py",
+        "_sources\\utils_11b3025f0c7454976675816d62306e5a.py"
+      ],
+      [
+        "validation.py",
+        "_sources\\validation_d68e1c71411988f7793a8216f9baa2a5.py"
+      ],
+      [
+        "validation_iter.py",
+        "_sources\\validation_iter_bd9fa99798db05866815336eaca58c41.py"
+      ]
+    ]
+  },
+  "heartbeat": "2025-04-11T15:42:29.545846",
+  "host": {
+    "ENV": {},
+    "cpu": "Intel(R) Core(TM) i5-9600K CPU @ 3.70GHz",
+    "gpus": {
+      "driver_version": "512.15",
+      "gpus": [
+        {
+          "model": "NVIDIA GeForce RTX 2080",
+          "persistence_mode": false,
+          "total_memory": 8192
+        }
+      ]
+    },
+    "hostname": "DESKTOP-9ABM2A2",
+    "os": [
+      "Windows",
+      "Windows-10-10.0.19041-SP0"
+    ],
+    "python_version": "3.8.5"
+  },
+  "meta": {
+    "command": "main",
+    "options": {
+      "--beat_interval": null,
+      "--capture": null,
+      "--comment": null,
+      "--debug": false,
+      "--enforce_clean": false,
+      "--file_storage": null,
+      "--force": false,
+      "--help": false,
+      "--loglevel": null,
+      "--mongo_db": null,
+      "--name": null,
+      "--pdb": false,
+      "--print_config": false,
+      "--priority": null,
+      "--queue": false,
+      "--sql": null,
+      "--tiny_db": null,
+      "--unobserved": false,
+      "COMMAND": null,
+      "UPDATE": [
+        "modelname=dlfcn_res101",
+        "usealign=True",
+        "optim_type=sgd",
+        "reload_model_path=E:/Suyash/cowpro/runs/myexperiments_MIDDLE_0_opencv_grabcut/mySSL_train_CHAOST2_Superpix_lbgroup0_scale_MIDDLE_vfold2_CHAOST2_Superpix_sets_0_1shot/2/snapshots/100000.pth",
+        "num_workers=4",
+        "scan_per_load=-1",
+        "label_sets=0",
+        "use_wce=True",
+        "exp_prefix=test_vfold2",
+        "clsname=grid_proto",
+        "n_steps=100100",
+        "exclude_cls_list=[2,3]",
+        "eval_fold=2",
+        "dataset=CHAOST2_Superpix",
+        "proto_grid_size=8",
+        "max_iters_per_load=1000",
+        "min_fg_data=1",
+        "seed=1234",
+        "save_snapshot_every=25000",
+        "superpix_scale=MIDDLE",
+        "lr_step_gamma=0.95",
+        "path.log_dir=./exps/myexp",
+        "support_idx=[4]"
+      ],
+      "help": false,
+      "with": true
+    }
+  },
+  "resources": [],
+  "result": 1,
+  "start_time": "2025-04-11T15:23:44.311831",
+  "status": "COMPLETED",
+  "stop_time": "2025-04-11T15:42:29.545846"
+}
