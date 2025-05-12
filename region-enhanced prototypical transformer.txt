@@ -1,0 +1,965 @@
+Few-Shot Medical Image Segmentation via a
+Region-enhanced Prototypical Transformer
+Yazhou Zhu1 , Shidong Wang2 , Tong Xin3 , and Haofeng Zhang1 (B)
+School of Computer Science and Engineering, Nanjing University of Science and
+Technology, Nanjing 210094, China. {zyz_nj,zhanghf}@njust.edu.cn
+2
+School of Engineering, Newcastle University, Newcastle upon Tyne, NE17RU, UK.
+shidong.wang@newcastle.ac.uk
+3
+School of Computing, Newcastle University, Newcastle upon Tyne, NE17RU, UK.
+tong.xin@newcastle.ac.uk
+
+arXiv:2309.04825v1 [cs.CV] 9 Sep 2023
+
+1
+
+Abstract. Automated segmentation of large volumes of medical images
+is often plagued by the limited availability of fully annotated data and
+the diversity of organ surface properties resulting from the use of different
+acquisition protocols for different patients. In this paper, we introduce a
+more promising few-shot learning-based method named Region-enhanced
+Prototypical Transformer (RPT) to mitigate the effects of large intraclass diversity/bias. First, a subdivision strategy is introduced to produce
+a collection of regional prototypes from the foreground of the support
+prototype. Second, a self-selection mechanism is proposed to incorporate
+into the Bias-alleviated Transformer (BaT) block to suppress or remove
+interferences present in the query prototype and regional support prototypes. By stacking BaT blocks, the proposed RPT can iteratively optimize the generated regional prototypes and finally produce rectified and
+more accurate global prototypes for Few-Shot Medical Image Segmentation (FSMS). Extensive experiments are conducted on three publicly
+available medical image datasets, and the obtained results show consistent improvements compared to state-of-the-art FSMS methods. The
+source code is available at: https://github.com/YazhouZhu19/RPT.
+Keywords: Few-Shot Learning · Medical Image Segmentation · Bias
+Alleviation · Transformer
+
+1
+
+Introduction
+
+Automatic medical image segmentation is the implementation of data-driven image segmentation concepts to identify a specific anatomical structure’s surface
+or volume in a medical image ranging from X-ray and ultrasonography to CT
+and MRI scans. Deep learning algorithms are exquisitely suited for this task because they can generate measurements and segmentations from medical images
+without the time-consuming manual work as in traditional methods. However,
+the performance of deep learning algorithms depends heavily on the availability
+of large-scale, high-quality, fully pixel-wise annotations, which are often expensive to acquire. To this end, few-shot learning is considered as a more promising
+approach and introduced into the medical image segmentation by [13].
+
+2
+
+Y. Zhu et al.
+Mask
+
+Prediction Query
+
+(a)
+
+Prototypes
+Cosine
+Similarity
+
+Query
+Feature
+
+(b)
+
+Prediction
+
+Query
+
+Prototypes
+Generation
+
+Pretrained
+Network
+
+RPT
+Support
+Feature
+
+Shared Net
+
+Support
+
+Pretrained
+Network
+
+Shared Net
+
+Query Arm
+
+Porotype
+Computation
+
+BaT
+
+BaT
+…
+
+…
+
+Query
+Feature
+
+…
+
+Interaction
+
+Query
+
+Support
+Feature
+
+…
+
+Support
+
+Support
+
+Pretrained
+Network
+
+Support Arm
+
+Pretrained
+Network
+
+Mask
+
+Cosine
+Similarity
+
+Prediction
+
+(c)
+
+Fig. 1. Comparison between previous FSMS models and our model. (a) Interactive
+model. (b) Prototypical network based model. (c) Our proposed model.
+
+Through revisiting existing FSMS algorithms [3,4,5,17,16,19], they can be
+grouped into two folders, including the interactive method originated from SENet
+[15] (shown in Fig. 1(a)) and the prototype networks [18,20] (demonstrated in
+Fig. 1(b)). For the interaction-based approach, the ideas of attention [19], and
+contrastive learning [22] are introduced to work interactively between parallel support and query arms. In contrast, prototype network-based approach almost dominates the FSMS research, such as SSL-ALPNet [13], ADNet [5] and
+SR&CL [21], whose core idea is to obtain semantic-level prototypes by compressing support features, and then make predictions by matching with query
+features. However, the problem of how to obtain an accurate and representative
+prototype remains.
+The main reason affecting the representativeness of the prototype is the significant discrepancy between support and query. Specifically, in general, different
+protocols are taken for different patients, which results in a variety of superficial
+organ appearances, including the size, shape, and contour of features. In this
+case, the prototype generated from the support features may not accurately represent the key attributes of the target organ in the query image. In addition, it is
+also challenging to extract useful information (prototypes of novel classes) from
+the cluttered background due to the extremely heterogeneous texture between
+the target and its surroundings, which may contain information belonging to
+some novel classes or redundant information issue [19].
+To mitigate the impact of intra-class diversity, it considers subdividing the
+foreground of the supporting prototypes to produce some regional prototypes,
+which are then rectified to suppress or exclude areas inconsistent with the query
+targets, as illustrated in Fig. 1(c). Concretely, in the prototype learning stage,
+multiple subdivided regional prototypes are enhanced with a more accurate class
+center, which can be derived from the newly designed Regional Prototype Generation (RPG) and Query Prototype Generation (QPG) modules. Then, a designed
+Region-enhanced Prototypical Transformer (RPT) that is mainly composed of a
+number of stacked Bias-alleviated Transformer (BaT) blocks, each of which contains the core debiasing function-Search and Filter (S&F) modules, to filter out
+undesirable prototypes. As shown in Fig. 2, Our contributions are summarized
+as follows:
+
+Title Suppressed Due to Excessive Length
+
+3
+
+– A Region-enhanced Prototypical Transformer (RPT) consisting of stacked
+Bias-alleviated Transformer (BaT) blocks is proposed to mitigate the effects
+of large intra-class variations present in FSMS through Search and Filter
+(S&F) modules devised based on the self-selection mechanism.
+– A subdivision strategy is proposed to perform in the foreground of the support prototype to generate multiple regional prototypes, which can be further
+iteratively optimized by the RPT to produce the optimal prototype.
+– The proposed method can achieve state-of-the-art performance on three experimental datasets commonly used in medical image segmentation.
+
+2
+
+Methodology
+
+2.1
+
+Overall Architecture
+
+Before introducing the overall architecture, it is necessary to briefly explain
+how data is processed. Specifically, the 3D supervoxel clustering method [5] is
+employed to generate pseudo-masks as supervision, which is learned in a selfsupervised learning manner without any manual annotations. Meta-learningbased episodic tasks can then be constructed using the generated pseudo-masks.
+Notably, the pseudo-masks obtained by the 3D clustering method is more consistent with the volumetric properties of medical images than the 2D superpixel
+clustering method adopted in [13].
+As depicted in Fig. 2, the overall architecture includes three main components: the Regional Prototype Generation (RPG) module, the Query Prototype Generation (QPG) module and the Region-enhanced Prototypical Transformer (RPT) consisting of three Bias-alleviated Transformer (BaT) blocks. The
+pipeline first extracts features from support and query images using a weightshared ResNet-101 [6] as a backbone, which has been pretrained on the MSCOCO dataset [10]. We employ the ResNet101 pretrained on MS-COCO for
+optimal performance, and the comparison with ResNet50 pretrained on ImageNet dataset[2] is also included in the appendix. The extracted features are
+then taken as the input of the RPG and QPG modules to generate multiple
+region prototypes, which will be rectified by the following RPT to produce the
+optimal prototype.
+2.2
+
+Regional Prototype Generation
+
+The core problem considered in this paper is what causes prototype bias. By examining the input data, it can be observed that images of healthy and diseased
+organs have a chance to be considered as support or query. This means that if
+there are lesioned or edematous regions in some areas of the support images,
+they will be regarded as biased information which in reality cannot be accurately transferred for the query images containing only healthy organs. When
+these prototypes that contain the natural heterogeneity of the input images are
+processed by the Masked Average Pooling (MAP) operation, they inevitably lead
+to significant intra-class biases.
+
+Y. Zhu et al.
+.
+
+Element-wise multiplication
+
+
+
+0
+
+0
+
+Search&Filter
+(S&F)
+
+MHA
+
+Multi-head attention
+
+0
+
+𝐏𝒔𝟏
+…
+
+Decompose
+
+Regional Prototype Generation
+(RPG)
+
+softmax
+
+MLP
+
+Masked average pooling
+
+𝐏𝒒𝟏
+
+…
+
+MAP
+
+…
+
+Global average pooling
+
+Add & Norm
+
+−∞
+
+
+
+GAP
+
+…
+
+Is
+
+Bias-alleviation Transformer (BaT)
+
+0
+−∞
+
+Add & Norm
+
+Matrix multiplication
+Element-wise addition
+
+MHA
+
+4
+
+𝐏𝒔𝟐
+
+MAP
+
+Regional-enhanced Prototypical Transformer
+(RPT)
+
+MAP
+
+.
+
+BaT
+
+GAP
+
+QPG
+
+MAP
+
+Fs
+
+𝐏𝒈
+
+෡𝒒
+𝐏
+
+𝐏𝒔𝟑
+BaT
+
+GAP
+
+𝐏𝒒𝟏
+QPG
+
+𝐏𝒒𝟐
+
+…
+
+BaT
+
+𝐏𝒔𝟐
+
+…
+
+෡𝒔
+𝐏
+
+𝐏𝒔𝟏
+
+…
+
+MAP
+
+…
+
+…
+
+…
+
+…
+
+𝑵
+
+𝒇
+{𝒏 }𝒏=𝟏
+
+MAP
+
+GAP
+
+QPG
+Cosine
+Similarity
+
+𝒇
+
+𝒔
+
+Fq
+
+𝝉
+
+Cosine
+Similarity
+
+Fq
+
+Sigmoid
+
+෢ 𝒇𝒒
+
+MAP
+
+Query Prototype Generation (QPG)
+
+෪ 𝒇𝒒
+
+
+Fig. 2. Overview of the proposed Region-enhanced Prototypical Transformer.
+
+To cope with the above problems, we propose a Region Prototype Generation (RPG) module to generate multi-region prototypes by performing subdivisions in the foreground of the support images. Given an input support image
+Is and the corresponding foreground mask Mf , the foreground of this image
+can be obtained by calculating their product. The foreground image then can
+be partitioned into Nf regions, where Nf is set to 10 by default. By using the
+Nf
+Voronoi-based partition method [1,23], a set of regional masks {Vn }n=1
+can be
+derived for subsequent use of Masked Average Pooling (MAP) to generate a set
+Nf
+of coarse regional prototypes P̂s = {p̂n }n=1
+, p̂n ∈ RC . Formally,
+p̂n = MAP(Fs , Vn ) =
+
+HW
+1 X
+Fs,i Vn,i ,
+|Vn | i=1
+
+(1)
+
+where Fs ∈ RC×H×W is the feature extracted from the support images and Vn
+denotes the regional masks.
+2.3
+
+Query Prototype Generation
+
+Once a set of coarse regional prototypes P̂s have been generated for the support images, we can employ the method introduced in [11] to learn the coarse
+query prototype P̂q ∈ R1×C . Concretely, it first uses the MAP(·) operator as
+introduced in Eq. (1) to learn a global support prototype Pg = MAP(Fs , Ms )
+
+Title Suppressed Due to Excessive Length
+
+5
+
+with Pg ∈ R1×C , whose output can then be used to calculate the coarse query
+foreground mask M̂fq . Considering that the empirically designed threshold described in [11] may affect the quality of the M̂fq , we hereby introduce a learnable
+threshold τ . This process can be denoted as
+M̂fq = 1 − σ(S(Fq , Pg ) − τ ),
+
+(2)
+
+where Fq ∈ RC×H×W is feature extracted from query images, S(a, b) = −αcos(a, b)
+is the negative cosine similarity with a fixed scaling factor α = 20, σ denotes the
+Sigmoid activation, and τ is obtained by applying one average-pooling and two
+fully-connected layers (FC) to the query feature, expressed as τ = FC(Fq ).
+After this, the coarse query foreground prototype can be achieved by using
+P̂q = MAP(Fq,i , M̂fq,i ).
+2.4
+
+Region-enhanced Prototypical Transformer
+
+The above received prototypes P̂s and P̂q are taken as input to the proposed
+Region-enhanced Prototypical Transformer (RPT) to rectify and regenerate the
+optimal global prototype Ps . As shown in Fig. 2, our RPT mainly consists of
+L stacked Bias-alleviated Transformer (BaT) blocks each of which contains a
+Search and Filter (S&F) module, and QPG modules that maintain the query
+prototypes continuously updated. Taking the first BaT block as an example, it
+Nf ×1
+calculates an affinity map A = P̂s P̂⊤
+to reveal the correspondence
+q ∈ R
+between the query and Nf support regional prototypes by taking an input containing the query prototype P̂q and the support prototype P̂s ∈ RNf ×C obtained
+by concatenating all elements in P̂s . Then, a selective map S ∈ RNf ×1 can be
+derived from the proposed self-selection based S&F module by
+(
+0
+if Ai >= ξ
+, i ∈ {0, 1, ..., Nf } ,
+(3)
+Si (Ai ) =
+−∞ otherwise
+where ξ is the selection threshold achieved by ξ = (min(A) + mean(A))/2, S
+indicates the chosen regions from the support image that performs compatible
+with the query at the prototypical level. Then, the heterogeneous or disturbing
+regions of support foreground will be weeded out with softmax(·) function. The
+preliminary rectified prototypes P̂os ∈ RNf ×C is aggregated as:
+P̂os = softmax(P̂s P̂⊤
+q + S)P̂q .
+
+(4)
+
+The refined P̂os will be fed into the following components designed based on
+the self-attention mechanism to produce the output P1s ∈ RNf ×C . Formally,
+P̂o+1
+= LN(MHA(P̂os ) + P̂os ),
+s
+
+P1s = LN(MLP(P̂o+1
+) + P̂o+1
+),
+s
+s
+
+(5)
+
+where P̂o+1
+∈ RNf ×C is the intermediate generated prototype, LN(·) denotes
+s
+the layer normalization, MHA(·) represents the standard multi-head attention
+module and MLP(·) is the multilayer perception.
+
+6
+
+Y. Zhu et al.
+
+By stacking multiple BaT blocks, our RPT can iteratively rectify and update
+all coarse support and the query prototype. Given the prototypes Pl−1
+and
+s
+Pl−1
+from
+the
+previous
+BaT
+block,
+the
+updates
+for
+the
+current
+BaT
+block
+are
+q
+computed by:
+l−1
+Pls = BaT(Pl−1
+s , Pq ),
+
+Plq = QPG(GAP(Pls ), Fq ),
+
+(6)
+
+where Pls ∈ RNf ×C and Plq ∈ R1×C (l = 1, 2, ..., L) are updated prototypes,
+GAP(·) denotes the global average pooling operation. The final output prototypes Ps optimized by the RPT can be used to predict the foreground of the
+query image by using Eq.(2: M̃fq = 1 − σ(S(Fq , GAP(P3s )) − τ ), while its background can be obtained by M̃bq = 1 − M̃fq accordingly.
+2.5
+
+Objective Function
+
+The binary cross-entropy loss Lce is adopted to determine the error between the
+predict masks M̃q and the given ground-truth Mq . Formally,
+H
+
+Lce = −
+
+W
+
+1 XX f
+Mq (x, y)log(M̃fq (x, y)) + Mbq (x, y)log(M̃bq (x, y)).
+HW
+w
+
+(7)
+
+h
+
+Considering the prevalent class imbalance problem in medical image segmentation, the boundary loss [8] LB is also adopted and it is written as
+Z
+LB (θ) =
+ϕG(q)sθ (q)dq ,
+(8)
+Ω
+
+where θ denotes the network parameters, Ω denotes the spatial domain, ϕG :
+Ω → R denotes the level set representation of the ground-truth boundary,
+ϕG(q) = −DG (q) if q ∈ G and ϕG(q) = DG (q) otherwise, DG is distance map
+between the boundary of prediction and ground-truth, and sθ (q) : Ω → [0, 1]
+denotes softmax(·) function.
+Overall, the loss used for training our RPT is defined as L = Lce + ηLdice +
+(1 − η)LB , where Ldice is the Dice loss [12], η is initially set to 1 and decreased
+by 0.01 every epoch.
+
+3
+
+Experiments
+
+Experimental Datasets: The proposed method is comprehensively evaluated
+on three publicly available datasets, including Abd-MRI, Abd-CT and CardMRI. Concretely, Abd-MRI [7] is an abdominal MRI dataset used in the
+ISBI 2019 Combined Healthy Abdominal Organ Segmentation Challenge. AbdCT [9] is an abdominal CT dataset from MICCAI 2015 Multi-Atlas Abdomen
+Labeling Challenge. Card-MRI[24] is a cardiac MRI dataset from MICCAI
+2019 Multi-Sequence Cardiac MRI Segmentation Challenge. All 3D scans are
+
+Title Suppressed Due to Excessive Length
+
+7
+
+Table 1. Quantitative Comparison (in Dice score %) of different methods on abdominal
+datasets under Setting 1 and Setting 2.
+Abd-MRI
+Abd-CT
+Lower
+Upper
+Lower
+Upper
+Mean
+Mean
+LK
+RK Spleen Liver
+LK
+RK Spleen Liver
+ADNet [5]
+MIA’22
+73.86 85.80 72.29 82.11 78.51 72.13 79.06 63.48 77.24 72.97
+AAS-DCL [22] ECCV’22 80.37 86.11 76.24 72.33 78.76 74.58 73.19 72.30 78.04 74.52
+SR&CL [21] MICCAI’22 79.34 87.42 76.01 80.23 80.77 73.45 71.22 73.41 76.06 73.53
+CRAPNet [3] WACV’23 81.95 86.42 74.32 76.46 79.79 74.69 74.18 70.37 75.41 73.66
+Ours (RPT)
+—
+80.72 89.82 76.37 82.86 82.44 77.05 79.13 72.58 82.57 77.83
+ADNet [5]
+MIA’22
+59.64 56.68 59.44 77.03 63.20 48.41 40.52 50.97 70.63 52.63
+AAS-DCL [22] ECCV’22 76.90 83.75 74.86 69.94 76.36 64.71 69.95 66.36 71.61 68.16
+SR&CL [21] MICCAI’22 77.07 84.24 73.73 75.55 77.65 67.39 63.37 67.36 73.63 67.94
+CRAPNet [3] WACV’23 74.66 82.77 70.82 73.82 75.52 70.91 67.33 70.17 70.45 69.72
+Ours (RPT)
+—
+78.33 86.01 75.46 76.37 79.04 72.99 67.73 70.80 75.24 71.69
+
+Setting Method
+
+1
+
+2
+
+Reference
+
+reformatted into 2D axial and 2D short-axis slices. The abdominal datasets AbdMRI and Abd-CT share the same categories of labels which includes the liver,
+spleen, left kidney (LK) and right kidney (RK). The labels for Card-MRI
+include left ventricular myocardium (LV-MYO), right ventricular myocardium
+(RV), and blood pool (LV-BP).
+Experiment Setup: The model is trained for 30k iterations with batch size set
+to 1. During training, the initial learning rate is set to 1 × 10−3 with a step decay
+of 0.8 every 1000 iterations. The values of Nf and iterations L are set to 10 and
+3, respectively. To simulate the scarcity of labeled data in medical scenarios, all
+experiments embrace a 1-way 1-shot setting, and 5-fold cross-validation is also
+carried out in the experiments, where we only record the mean value.
+Evaluation: For a fair comparison, the metric used to evaluate the performance
+of 2D slices on 3D volumetric ground-truth is the Dice score used in [13]. Furthermore, two different supervision settings are used to evaluate the generalization
+ability of the proposed method: in Setting 1, the test classes may appear in
+the background of the training slices, while in Setting 2, the training slices containing the test classes are removed from the dataset to ensure that the test
+classes are unseen. Note that Setting 2 is impractical for Card-MRI scans, since
+all classes typically co-occur on one 2D slice, making label exclusion impossible.
+In addition, as in [13], abdominal organs are categorized into upper abdomen
+(liver, spleen) and lower abdomen (left, right kidney) to demonstrate whether
+the learned representations can encode spatial concepts.
+3.1
+
+Quantitative and Qualitative Results
+
+Table 1 shows the performance comparison of the proposed method with stateof-the-art methods, including the vanilla PA-Net [20], SE-Net [15], ADNet [5],
+CRAPNet [3], SSL-ALPNet [13,14], AAS-DCL [22] and SR&CL [21] under two
+experimental settings. From Tab. 1, it can be seen that the proposed method
+outperforms all listed methods in terms of the Mean values obtained under two
+different settings. Especially, the Mean value on Abd-CT dataset under Setting
+1 reaches 77.83, which is 3.31 higher than the best result achieved by AAS-DCL.
+
+8
+
+Y. Zhu et al.
+Support
+
+PANet
+
+SSL-ALPNet
+
+ADNet
+
+Ground Truth
+
+Support
+
+Ours
+
+Left Kidney
+
+Left Kidney
+
+Right Kidney
+
+Right Kidney
+
+Spleen
+
+Spleen
+
+PANet
+
+SSL-ALPNet
+
+ADNet
+
+Ground Truth
+
+Ours
+
+Right Kidney
+
+Liver
+
+Liver
+
+SABS
+
+CHAOS
+
+Dice Score (%)
+
+Fig. 3. Qualitative results of our model on Abd-MRI and Abd-CT.
+Table 2. Ablation study of the
+three loss functions.
+
+80
+79.5
+79
+78.5
+78
+77.5
+77
+1
+
+2
+
+3
+4
+Number of BaT blocks
+
+5
+
+6
+
+Fig. 4. Analysis of the number of BaT blocks.
+
+Lce LB Ldice Dice score
+✓
+78.43
+78.81
+✓ ✓
+✓ ✓ ✓
+79.04
+
+Consistent improvements are also indicated for Card-MRI dataset and can be
+found in the Appendix. In addition to the quantitative comparisons, qualitative
+results of our model and the other model on Abd-MRI and Abd-CT are shown
+in Fig. 3 (See Appendix for CMR dataset). It is not difficult to see that our
+model shows considerable bound-preserving and generalization capabilities.
+3.2
+
+Ablation Studies
+
+The ablation studies were conducted on Abd-MRI dataset under Setting 2. As
+can be seen from Fig. 4, the use of three stacked BaT blocks is suggested to
+obtain the best Dice score. From Tab. 2, using a combination of boundary and
+dice loss gives a 0.61 increase in terms of the dice score compared to using only
+the cross-entropy loss. More ablation study results can be found in Appendix.
+
+4
+
+Conclusion
+
+In this paper, we introduced a Region-enhanced Prototypical Transformer (RPT)
+to mitigate the impact of large intra-class variations present in medical image
+segmentation. The model is mainly beneficial from a subdivision-based strategy used for generating a set of regional support prototypes and a self-selection
+mechanism introduced to the Bias-alleviated Transformer (BaT) blocks. The
+proposed RPT can iteratively optimize the generated regional prototypes and
+output a more precise global prototype for predictions. The results of extensive experiments and ablation studies can demonstrate the advancement and
+effectiveness of the proposed method.
+
+Title Suppressed Due to Excessive Length
+
+9
+
+References
+1. Aurenhammer, F.: Voronoi diagrams: a survey of a fundamental geometric data
+structure. ACM Computing Surveys (CSUR) 23(3), 345–405 (1991)
+2. Deng, J., Dong, W., Socher, R., Li, L.J., Li, K., Fei-Fei, L.: Imagenet: A largescale hierarchical image database. In: 2009 IEEE conference on computer vision
+and pattern recognition. pp. 248–255. Ieee (2009)
+3. Ding, H., Sun, C., Tang, H., Cai, D., Yan, Y.: Few-shot medical image segmentation with cycle-resemblance attention. In: Proceedings of the IEEE/CVF Winter
+Conference on Applications of Computer Vision. pp. 2488–2497 (2023)
+4. Feng, R., Zheng, X., Gao, T., Chen, J., Wang, W., Chen, D.Z., Wu, J.: Interactive
+few-shot learning: Limited supervision, better medical image segmentation. IEEE
+Transactions on Medical Imaging 40(10), 2575–2588 (2021)
+5. Hansen, S., Gautam, S., Jenssen, R., Kampffmeyer, M.: Anomaly detectioninspired few-shot medical image segmentation through self-supervision with supervoxels. Medical Image Analysis 78, 102385 (2022)
+6. He, K., Zhang, X., Ren, S., Sun, J.: Deep residual learning for image recognition. In:
+Proceedings of the IEEE conference on computer vision and pattern recognition.
+pp. 770–778 (2016)
+7. Kavur, A.E., Gezer, N.S., Barış, M., Aslan, S., Conze, P.H., Groza, V., Pham,
+D.D., Chatterjee, S., Ernst, P., Özkan, S., et al.: Chaos challenge-combined (ctmr) healthy abdominal organ segmentation. Medical Image Analysis 69, 101950
+(2021)
+8. Kervadec, H., Bouchtiba, J., Desrosiers, C., Granger, E., Dolz, J., Ayed, I.B.:
+Boundary loss for highly unbalanced segmentation. In: International conference
+on medical imaging with deep learning. pp. 285–296 (2019)
+9. Landman, B., Xu, Z., Igelsias, J., Styner, M., Langerak, T., Klein, A.: Miccai multiatlas labeling beyond the cranial vault–workshop and challenge. In: Proceedings of
+MICCAI Multi-Atlas Labeling Beyond Cranial Vault—Workshop Challenge. vol. 5,
+p. 12 (2015)
+10. Lin, T.Y., Maire, M., Belongie, S., Hays, J., Perona, P., Ramanan, D., Dollár, P.,
+Zitnick, C.L.: Microsoft coco: Common objects in context. In: European Conference
+on Computer Vision. pp. 740–755 (2014)
+11. Liu, J., Qin, Y.: Prototype refinement network for few-shot segmentation. arXiv
+preprint arXiv:2002.03579 (2020)
+12. Ma, J., Chen, J., Ng, M., Huang, R., Li, Y., Li, C., Yang, X., Martel, A.L.: Loss
+odyssey in medical image segmentation. Medical Image Analysis 71, 102035 (2021)
+13. Ouyang, C., Biffi, C., Chen, C., Kart, T., Qiu, H., Rueckert, D.: Self-supervision
+with superpixels: Training few-shot medical image segmentation without annotation. In: European Conference on Computer Vision. pp. 762–780 (2020)
+14. Ouyang, C., Biffi, C., Chen, C., Kart, T., Qiu, H., Rueckert, D.: Self-supervised
+learning for few-shot medical image segmentation. IEEE Transactions on Medical
+Imaging 41(7), 1837–1848 (2022)
+15. Roy, A.G., Siddiqui, S., Pölsterl, S., Navab, N., Wachinger, C.: ‘squeeze & excite’
+guided few-shot segmentation of volumetric images. Medical image analysis 59,
+101587 (2020)
+16. Shen, Q., Li, Y., Jin, J., Liu, B.: Q-net: Query-informed few-shot medical image
+segmentation. arXiv preprint arXiv:2208.11451 (2022)
+17. Shen, X., Zhang, G., Lai, H., Luo, J., Lu, J., Luo, Y.: Poissonseg: semi-supervised
+few-shot medical image segmentation via poisson learning. In: IEEE international
+conference on Bioinformatics and biomedicine. pp. 1513–1518 (2021)
+
+10
+
+Y. Zhu et al.
+
+18. Snell, J., Swersky, K., Zemel, R.: Prototypical networks for few-shot learning. Advances in neural information processing systems 30 (2017)
+19. Sun, L., Li, C., Ding, X., Huang, Y., Chen, Z., Wang, G., Yu, Y., Paisley, J.:
+Few-shot medical image segmentation using a global correlation network with discriminative embedding. Computers in biology and medicine 140, 105067 (2022)
+20. Wang, K., Liew, J.H., Zou, Y., Zhou, D., Feng, J.: Panet: Few-shot image semantic
+segmentation with prototype alignment. In: proceedings of the IEEE/CVF international conference on computer vision. pp. 9197–9206 (2019)
+21. Wang, R., Zhou, Q., Zheng, G.: Few-shot medical image segmentation regularized
+with self-reference and contrastive learning. In: International Conference on Medical Image Computing and Computer-Assisted Intervention. pp. 514–523 (2022)
+22. Wu, H., Xiao, F., Liang, C.: Dual contrastive learning with anatomical auxiliary
+supervision for few-shot medical image segmentation. In: European Conference on
+Computer Vision. pp. 417–434 (2022)
+23. Zhang, J.W., Sun, Y., Yang, Y., Chen, W.: Feature-proxy transformer for few-shot
+segmentation. In: Advance in Neural Information Processing Systems (2022)
+24. Zhuang, X.: Multivariate mixture model for myocardial segmentation combining
+multi-source images. IEEE transactions on pattern analysis and machine intelligence 41(12), 2933–2946 (2018)
+
+arXiv:2309.04825v1 [cs.CV] 9 Sep 20
+
+Appendix for “Few-Shot Medical Image
+Segmentation via a Region-enhanced Prototypical
+Transformer”
+Yazhou Zhu1 , Shidong Wang2 , Tong Xin3 , and Haofeng Zhang1 (B)
+
+School of Computer Science and Engineering, Nanjing University of Science and
+Technology, Nanjing 210094, China. {zyz_nj,zhanghf}@njust.edu.cn
+2
+School of Engineering, Newcastle University, Newcastle upon Tyne, NE17RU, UK.
+shidong.wang@newcastle.ac.uk
+3
+School of Computing, Newcastle University, Newcastle upon Tyne, NE17RU, UK.
+tong.xin@newcastle.ac.uk
+1
+
+Table 1. The summary of denotations in this paper.
+Denotations
+Meaning
+Is
+Support Image
+Nf
+{Vn }n=1
+Regional Masks
+Fs , Fq
+Support Feature, Query Feature
+Pg
+Global Support Prototype
+P̂q , P̂s
+Intermediate Query and Support Prototype
+Support, Query Prototype from i-th BaT Block
+Pis , Piq
+Mfs
+Mask of Support Image
+M̂fq
+Coarse Mask of Query Image
+Prediction of Query Image
+M̃fq
+
+Table 2. More quantitative comparison (in Dice score %) of different methods on
+abdominal datasets under Setting 1 and Setting 2.
+Abd-MRI
+Abd-CT
+Lower
+Upper
+Lower
+Upper
+Mean
+Mean
+LK
+RK Spleen Liver
+LK RK Spleen Liver
+PA-Net
+CVPR’19 30.99 32.19 40.58 50.40 38.53 20.67 21.19 36.04 49.55 32.86
+SE-Net
+MIA’20 45.78 47.96 47.30 29.02 42.51 24.42 12.51 43.66 35.42 29.00
+SSL-ALPNet ECCV’20 81.92 85.18 72.18 76.10 78.84 72.36 71.81 70.96 78.29 73.35
+Ours (RPT)
+—
+80.72 89.82 76.37 82.86 82.44 77.05 72.58 79.13 82.57 77.83
+PA-Net
+CVPR’19 53.45 38.64 50.90 42.26 46.33 32.34 17.37 29.59 38.42 29.43
+SE-Net
+MIA’20 62.11 61.32 51.80 27.43 50.66 32.83 14.34 0.23 0.27 11.91
+SSL-ALPNet ECCV’20 73.63 78.39 67.02 73.05 73.02 63.34 54.82 60.25 73.65 63.02
+Ours (RPT)
+—
+78.33 86.01 75.46 76.37 79.04 72.99 67.73 70.80 75.24 71.69
+
+Setting Method
+
+1
+
+2
+
+Ref
+
+2
+
+Y. Zhu et al.
+
+Table 3. Quantitative Comparison (in Dice score %) of different methods on cardiac
+image under Setting 1.
+Method
+Ref.
+LV-BP LV-MYO RV Mean
+SE-Net
+CVPR’19
+58.04
+25.18 12.86 32.02
+PA-Net
+MIA’20
+72.77
+44.76 57.13 58.20
+SSL-ALPNet ECCV’20
+83.99
+66.74 79.96 76.90
+ADNet
+MIA’22
+87.53
+62.43 77.31 75.76
+AAS-DCL
+ECCV’22
+85.21
+64.03 79.13 76.12
+MICCAI’22 84.74
+65.83 78.41 76.32
+SR&CL
+CRAPNet
+WACV’23 83.02
+65.48 78.27 75.59
+Ours (RPT)
+—
+89.90 66.91 80.78 79.19
+
+Table 4. The ablation study on different backbones.
+Setting1
+Setting2
+Abd-MRI Abd-CT Abd-MRI Abd-CT
+ResNet50 ImageNet
+81.09
+75.83
+77.98
+69.49
+ResNet101 COCO
+82.44
+77.83
+79.04
+71.69
+Backbone Pre-Trained
+
+Support
+
+PANet
+
+SSL-ALPNet
+
+ADNet
+
+Ground Truth
+
+Lv-BP
+
+Lv-MYO
+
+RV
+
+CMR
+Fig. 1. Qualitative results of our model on CMR dataset
+
+Ours
+
+
