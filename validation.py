@@ -12,13 +12,14 @@ import torch.backends.cudnn as cudnn
 from torchvision import transforms
 import numpy as np
 
-from models.grid_proto_fewshot import FewShotSeg
+from models.grid_proto_fewshotsa import FewShotSeg
 
-from dataloaders.dev_customized_medv1 import med_fewshot_val
-from dataloaders.ManualAnnoDatasetv1 import ManualAnnoDataset
-from dataloaders.GenericSuperDatasetv1 import SuperpixelDataset
+from dataloaders.dev_customized_med import med_fewshot_val
+from dataloaders.ManualAnnoDatasetv2 import ManualAnnoDataset
+from dataloaders.GenericSuperDatasetv2 import SuperpixelDataset
 from dataloaders.dataset_utils import DATASET_INFO, get_normalize_op
 from dataloaders.niftiio import convert_to_sitk
+import dataloaders.augutils as myaug
 
 from util.metric import Metric
 
@@ -32,10 +33,11 @@ import tqdm
 import SimpleITK as sitk
 from torchvision.utils import make_grid
 
-from models.agun_model import AGUNet
+#from models.agun_model import AGUNet
 
 # config pre-trained model caching path
 os.environ['TORCH_HOME'] = "./pretrained_model"
+
 
 @ex.automain
 def main(_run, _config, _log):
@@ -60,18 +62,18 @@ def main(_run, _config, _log):
     model.eval()
 
     _log.info('###### Load data ######')
-    ### Training set
+        ### Training set
     data_name = _config['dataset']
-    if data_name == 'SABS_Superpix':
-        baseset_name = 'SABS'
-        max_label = 13
+    if data_name == 'CHAOST2_Superpix':
+        baseset_name = 'CHAOST2'
+        max_label = 4
     elif data_name == 'C0_Superpix':
         raise NotImplementedError
         baseset_name = 'C0'
         max_label = 3
-    elif data_name == 'CHAOST2_Superpix':
-        baseset_name = 'CHAOST2'
-        max_label = 4
+    elif data_name == 'SABS_Superpix':
+        baseset_name = 'SABS'
+        max_label = 13
     else:
         raise ValueError(f'Dataset: {data_name} not found')
 
@@ -85,14 +87,14 @@ def main(_run, _config, _log):
     _log.info(f'###### Labels excluded in training : {[lb for lb in _config["exclude_cls_list"]]} ######')
     _log.info(f'###### Unseen labels evaluated in testing: {[lb for lb in test_labels]} ######')
 
-    if baseset_name == 'SABS': # for CT we need to know statistics of 
+    if baseset_name == 'CHAOST2': # for CT we need to know statistics of 
         tr_parent = SuperpixelDataset( # base dataset
             which_dataset = baseset_name,
             base_dir=_config['path'][data_name]['data_dir'],
             idx_split = _config['eval_fold'],
             mode='train',
             min_fg=str(_config["min_fg_data"]), # dummy entry for superpixel dataset
-            transform_param_limits=myaug.augs[_config['which_aug']],
+            transform_param_limits= myaug.augs[_config['which_aug']],
             nsup = _config['task']['n_shots'],
             scan_per_load = _config['scan_per_load'],
             exclude_list = _config["exclude_cls_list"],
@@ -205,7 +207,7 @@ def main(_run, _config, _log):
                     # plt.show()
                     # print(len(sup_img_part),len(sup_img_part[0]),len(sup_img_part[0][0]),sup_img_part[0][0].shape,sup_img_part[0][0][0].shape)
 
-                    query_pred, _, _, _ = model( sup_img_part , sup_fgm_part, sup_bgm_part, query_images, isval = True, val_wsize = _config["val_wsize"] )
+                    query_pred, _, _, _, _ = model( sup_img_part , sup_fgm_part, sup_bgm_part, query_images, isval = True, val_wsize = _config["val_wsize"] )
 
                     # print(query_pred.cpu().numpy().shape,query_labels.cpu().numpy().shape)
                     # print(query_pred.min(), query_pred.max()) #/3)**0.5)
@@ -246,7 +248,7 @@ def main(_run, _config, _log):
                                                     supimgs.transpose(3,1,2,0),
                                                     supfgs.transpose(2,0,1)] # H, W, Z -> to Z H W
                         else:
-                            lb_buffer[_scan_id] = [_pred, _labels, _qimgs, _means, _stds, sup_img_part, sup_fgm_part]
+                            _lb_buffer[_scan_id] = [_pred, _labels, _qimgs, _means, _stds, sup_img_part, sup_fgm_part]
 
                 save_pred_buffer[str(curr_lb)] = _lb_buffer
 
@@ -357,5 +359,3 @@ def main(_run, _config, _log):
 
     _log.info(f'End of validation')
     return 1
-
-
