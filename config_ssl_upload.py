@@ -56,7 +56,9 @@ def cfg():
     usealign = True # see vanilla PANet
     use_wce = True
     viz = 1
-
+    min_slice_distance = 4
+    max_distance_ratio = 1/6
+    use_tversky = True
     ### Validation
     z_margin = 0 
     eval_fold = 0 # which fold for 5 fold cross validation
@@ -65,7 +67,7 @@ def cfg():
     n_sup_part = 3 # number of chuncks in testing
 
     # Network
-    modelname = 'resnet50' # resnet 101 backbone from torchvision fcn-deeplab
+    modelname = 'dlfcn_res101' # resnet 101 backbone from torchvision fcn-deeplab
     clsname = 'grid_proto' # 
     resume = False
     reload_model_path = './exps/myexperiments_MIDDLE_0/mySSL_train_CHAOST2_Superpix_lbgroup0_scale_MIDDLE_vfold2_CHAOST2_Superpix_sets_0_1shot/4/snapshots/20000.pth' #'./runs/mySSL__CHAOST2_Superpix_sets_0_1shot/314_best_ref/snapshots/100000.pth' # path for reloading a trained model (overrides ms-coco initialization)
@@ -117,25 +119,33 @@ def cfg():
 
     path = {
         'log_dir': './runs',
-        'SABS':{'data_dir': "E:/Siladittya_JRF/cvpr2024/agun-sona-master/data/SABS/Abdomen/RawData/Training/sabs_CT_normalized"
+        'SABS':{'data_dir': "E:\Suyash\cowpro\data\SABS\sabs_CT_normalized"
             },
-        'C0':{'data_dir': "E:/Siladittya_JRF/cvpr2024/agun-sona-master/data"
+        'C0':{'data_dir': "E:\Suyash\cowpro\data"
             },
-        'CHAOST2':{'data_dir': "E:/Siladittya_JRF/cvpr2024/agun-sona-master/data/CHAOS/CHAOS_Train_Sets/Train_Sets/chaos_MR_T2_normalized/"
+        'CHAOST2':{'data_dir': "E:\Suyash\cowpro\data\CHAOST2\chaos_MR_T2_normalized"
             },
-        'SABS_Superpix':{'data_dir': "E:/Siladittya_JRF/cvpr2024/agun-sona-master/data/SABS/Abdomen/RawData/Training/sabs_CT_normalized"},
-        'C0_Superpix':{'data_dir': "E:/Siladittya_JRF/cvpr2024/agun-sona-master/data"},
-        'CHAOST2_Superpix':{'data_dir': "E:/Siladittya_JRF/cvpr2024/agun-sona-master/data/CHAOS/CHAOS_Train_Sets/Train_Sets/chaos_MR_T2_normalized/"},
+        'FLARE22Train':{'data_dir':"E:\Suyash\cowpro\data\FLARE22Train\flare_CT_normalized"
+            },
+        'SABS_Superpix':{'data_dir': "E:\Suyash\cowpro\data\SABS\sabs_CT_normalized"},
+        'C0_Superpix':{'data_dir': "E:\Suyash\cowpro\data"},
+        'CHAOST2_Superpix':{'data_dir': "E:\Suyash\cowpro\data\CHAOST2\chaos_MR_T2_normalized"},
+        'FLARE22Train_Superpix':{'data_dir':"E:\Suyash\cowpro\data\FLARE22Train\flare_CT_normalized"}
         }
 
-    DATASET_CONFIG = {'SABS':{'img_bname': f'E:/Siladittya_JRF/cvpr2024/agun-sona-master/data/SABS/Cervix/RawData/Training/sabs_CT_normalized/image_*.nii.gz',
-                        'out_dir': 'E:/Siladittya_JRF/cvpr2024/agun-sona-master/data/SABS/Cervix/RawData/Training/sabs_CT_normalized',
+    DATASET_CONFIG = {'SABS':{'img_bname': f'E:\Suyash\cowpro\data\SABS\sabs_CT_normalized/image_*.nii.gz',
+                        'out_dir': 'E:\Suyash\cowpro\data\SABS\sabs_CT_normalized',
                         'fg_thresh': 1e-4,
                         },
                       'CHAOST2':{
-                       'img_bname': f'E:/Siladittya_JRF/cvpr2024/agun-sona-master/data/CHAOS/CHAOS_Train_Sets/Train_Sets/chaos_MR_T2_normalized/image_*.nii.gz',
-                          'out_dir': 'E:/Siladittya_JRF/cvpr2024/agun-sona-master/data/CHAOS/CHAOS_Train_Sets/Train_Sets/chaos_MR_T2_normalized',
+                       'img_bname': f'E:\Suyash\cowpro\data\CHAOST2\chaos_MR_T2_normalized/image_*.nii.gz',
+                          'out_dir': 'E:\Suyash\cowpro\data\CHAOST2\chaos_MR_T2_normalized',
                           'fg_thresh': 1e-4 + 50,
+                        },
+                        'FLARE22Train':{
+                         'img_bname': f'E:\Suyash\cowpro\data\FLARE22Train\flare_CT_normalized/image_*.nii.gz',
+                          'out_dir': 'E:\Suyash\cowpro\data\FLARE22Train\flare_CT_normalized',
+                          'fg_thresh': 1e-4                     
                         },
                      }
 
