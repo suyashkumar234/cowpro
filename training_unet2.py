@@ -1,5 +1,5 @@
 """
-Training the model with UNet backbone
+Training the model with UNet backbone - Fixed Version
 Extended from original implementation of PANet by Wang et al.
 """
 import os
@@ -199,35 +199,36 @@ def main(_run, _config, _log):
                 log_loss['loss'] = 0
                 log_loss['align_loss'] = 0
 
-                # Enhanced visualization
+                # Enhanced visualization with proper tensor handling
                 fig, ax = plt.subplots(2, 3, figsize=(15, 10))
                 
                 # Support image and mask
-                si = (support_images[0][0][0].cpu()*std[0]+mean[0]).numpy().transpose((1,2,0))
+                si = (support_images[0][0][0].detach().cpu()*std[0]+mean[0]).numpy().transpose((1,2,0))
                 si = (si - si.min())/(si.max() - si.min() + 1e-6)
                 ax[0,0].imshow(si)
                 ax[0,0].set_title('Support Image')
                 
-                sm = support_fg_mask[0][0][0].cpu().numpy()
+                sm = support_fg_mask[0][0][0].detach().cpu().numpy()
                 ax[0,0].imshow(np.stack([np.zeros(sm.shape),sm,np.zeros(sm.shape)], axis = 2), alpha = 0.3)
 
                 # Query image, ground truth, and prediction
-                qi = (query_images[0][0].cpu()*std[0]+mean[0]).numpy().transpose((1,2,0))
+                qi = (query_images[0][0].detach().cpu()*std[0]+mean[0]).numpy().transpose((1,2,0))
                 qi = (qi - qi.min())/(qi.max() - qi.min() + 1e-6)
                 ax[0,1].imshow(qi)
                 ax[0,1].set_title('Query Image')
                 
-                qm = query_labels[0].cpu().numpy()
+                qm = query_labels[0].detach().cpu().numpy()
                 ax[0,1].imshow(np.stack([np.zeros(qm.shape),qm,np.zeros(qm.shape)], axis = 2), alpha = 0.3)
                 
-                qp = query_pred.argmax(dim = 1).float().cpu().numpy()[0]
+                qp = query_pred.argmax(dim = 1).float().detach().cpu().numpy()[0]
                 ax[0,2].imshow(qi)
                 ax[0,2].set_title('Query Prediction')
                 ax[0,2].imshow(np.stack([qp,np.zeros(qp.shape),np.zeros(qp.shape)], axis = 2), alpha = 0.4)
                 
-                # Probability maps
-                prob_fg = torch.softmax(query_pred, dim=1)[0,1].cpu().numpy()
-                prob_bg = torch.softmax(query_pred, dim=1)[0,0].cpu().numpy()
+                # Probability maps - Fixed tensor handling
+                with torch.no_grad():  # Ensure no gradients are computed for visualization
+                    prob_fg = torch.softmax(query_pred.detach(), dim=1)[0,1].cpu().numpy()
+                    prob_bg = torch.softmax(query_pred.detach(), dim=1)[0,0].cpu().numpy()
                 
                 ax[1,0].imshow(prob_bg, cmap='Blues')
                 ax[1,0].set_title('Background Probability')
@@ -236,7 +237,7 @@ def main(_run, _config, _log):
                 
                 # Assignment visualization if available
                 if len(assign_mats) > 0 and assign_mats[0] is not None:
-                    assign_vis = assign_mats[0][0].cpu().numpy()
+                    assign_vis = assign_mats[0][0].detach().cpu().numpy()
                     ax[1,2].imshow(assign_vis, cmap='viridis')
                     ax[1,2].set_title('Prototype Assignment')
                 else:
