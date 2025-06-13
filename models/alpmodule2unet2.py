@@ -1,5 +1,5 @@
 """
-ALPModule with UNet integration
+ALPModule with UNet integration - Fixed Version
 """
 import torch
 import math
@@ -68,9 +68,22 @@ class MultiProtoAsWCos(nn.Module):
         sup_y_g = sup_y_g.view(sup_nshot, 1, -1).permute(1, 0, 2).view(1, -1).unsqueeze(0)
         
         # Extract prototypes above threshold
-        protos = n_sup_x[sup_y_g > thresh, :]
+        valid_mask = sup_y_g > thresh
+        protos = n_sup_x[valid_mask, :]
         
-        if fg and len(protos) > 0:
+        # Handle empty prototypes case
+        if len(protos) == 0:
+            # Create a fallback prototype using global average
+            if fg:
+                # For foreground, use global prototype
+                glb_proto = torch.sum(attended_sup_x * sup_y, dim=(-1, -2)) / (sup_y.sum(dim=(-1, -2)) + 1e-5)
+                protos = glb_proto.mean(dim=0, keepdim=True)  # Average across shots
+            else:
+                # For background, use inverse mask
+                bg_mask = 1.0 - sup_y
+                glb_proto = torch.sum(attended_sup_x * bg_mask, dim=(-1, -2)) / (bg_mask.sum(dim=(-1, -2)) + 1e-5)
+                protos = glb_proto.mean(dim=0, keepdim=True)  # Average across shots
+        elif fg and len(protos) > 0:
             # Add global prototype for foreground
             glb_proto = torch.sum(attended_sup_x * sup_y, dim=(-1, -2)) / (sup_y.sum(dim=(-1, -2)) + 1e-5)
             if F.avg_pool2d(sup_y, 4).max() >= 0.95:
@@ -136,10 +149,6 @@ class MultiProtoAsWCos(nn.Module):
             protos, attention_weights = self.extract_prototypes_with_correlation(
                 sup_x, sup_y, qry, thresh, fg=False)
             
-            if len(protos) == 0:
-                # Fallback to original method
-                return self.original_gridconv_forward(qry, sup_x, sup_y, thresh, isval, val_wsize, vis_sim)
-            
             pred_grid, dists = self.correlate_query_with_prototypes(qry, protos)
             debug_assign = dists.argmax(dim=1).float().detach()
             
@@ -152,10 +161,6 @@ class MultiProtoAsWCos(nn.Module):
         elif mode == 'gridconv+':  # local and global prototypes
             protos, attention_weights = self.extract_prototypes_with_correlation(
                 sup_x, sup_y, qry, thresh, fg=True)
-            
-            if len(protos) == 0:
-                # Fallback to original method
-                return self.original_gridconv_plus_forward(qry, sup_x, sup_y, thresh, isval, val_wsize, vis_sim)
             
             pred_grid, dists = self.correlate_query_with_prototypes(qry, protos)
             debug_assign = dists.argmax(dim=1).float()
@@ -171,7 +176,7 @@ class MultiProtoAsWCos(nn.Module):
             return self.enhanced_attention_forward(qry, sup_x, sup_y, thresh, fg, isval, val_wsize, vis_sim)
 
     def original_gridconv_forward(self, qry, sup_x, sup_y, thresh, isval, val_wsize, vis_sim):
-        """Fallback to original gridconv implementation"""
+        """Fallback to original gridconv implementation with empty prototype handling"""
         def safe_norm(x, p=2, dim=1, eps=1e-4):
             x_norm = torch.norm(x, p=p, dim=dim)
             x_norm = torch.max(x_norm, torch.ones_like(x_norm).cuda() * eps)
@@ -189,7 +194,15 @@ class MultiProtoAsWCos(nn.Module):
         sup_y_g = F.avg_pool2d(sup_y, val_wsize) if isval else self.avg_pool_op(sup_y)
         sup_y_g = sup_y_g.view(sup_nshot, 1, -1).permute(1, 0, 2).view(1, -1).unsqueeze(0)
 
-        protos = n_sup_x[sup_y_g > thresh, :]
+        valid_mask = sup_y_g > thresh
+        protos = n_sup_x[valid_mask, :]
+        
+        # Handle empty prototypes case
+        if len(protos) == 0:
+            # Create fallback prototype using global average
+            proto = torch.sum(sup_x * sup_y, dim=(-1, -2)) / (sup_y.sum(dim=(-1, -2)) + 1e-5)
+            protos = proto.mean(dim=0, keepdim=True)  # [1, nch]
+        
         protos = protos - protos.mean(dim=-1, keepdim=True)
         qry = qry - qry.mean(dim=1, keepdim=True)
 
@@ -209,7 +222,7 @@ class MultiProtoAsWCos(nn.Module):
         return pred_grid, [debug_assign], vis_dict
 
     def original_gridconv_plus_forward(self, qry, sup_x, sup_y, thresh, isval, val_wsize, vis_sim):
-        """Fallback to original gridconv+ implementation"""
+        """Fallback to original gridconv+ implementation with empty prototype handling"""
         def safe_norm(x, p=2, dim=1, eps=1e-4):
             x_norm = torch.norm(x, p=p, dim=dim)
             x_norm = torch.max(x_norm, torch.ones_like(x_norm).cuda() * eps)
@@ -227,9 +240,18 @@ class MultiProtoAsWCos(nn.Module):
         sup_y_g = F.avg_pool2d(sup_y, val_wsize) if isval else self.avg_pool_op(sup_y)
         sup_y_g = sup_y_g.view(sup_nshot, 1, -1).permute(1, 0, 2).view(1, -1).unsqueeze(0)
 
-        protos = n_sup_x[sup_y_g > thresh, :]
+        valid_mask = sup_y_g > thresh
+        protos = n_sup_x[valid_mask, :]
+        
+        # Always add global prototype
         glb_proto = torch.sum(sup_x * sup_y, dim=(-1, -2)) / (sup_y.sum(dim=(-1, -2)) + 1e-5)
-        protos = torch.cat([protos, glb_proto], dim=0)
+        
+        if len(protos) == 0:
+            # Use only global prototype if no local prototypes found
+            protos = glb_proto.mean(dim=0, keepdim=True)  # [1, nch]
+        else:
+            # Concatenate local and global prototypes
+            protos = torch.cat([protos, glb_proto], dim=0)
 
         protos = protos - protos.mean(dim=-1, keepdim=True)
         qry = qry - qry.mean(dim=1, keepdim=True)
@@ -259,13 +281,6 @@ class MultiProtoAsWCos(nn.Module):
         protos, attention_weights = self.extract_prototypes_with_correlation(
             sup_x, sup_y, qry, thresh, fg=fg)
         
-        if len(protos) == 0:
-            # Return zeros if no prototypes found
-            pred_grid = torch.zeros(B, 1, H, W).cuda()
-            debug_assign = torch.zeros(B, H, W).cuda()
-            vis_dict = {'proto_assign': debug_assign}
-            return pred_grid, [debug_assign], vis_dict
-
         # Enhanced correlation computation
         qry_n = qry.view(B, C, -1).transpose(1, 2)
         self.temperature = C**0.5
