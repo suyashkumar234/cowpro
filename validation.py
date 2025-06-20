@@ -1,6 +1,9 @@
 """
 Validation script
 """
+"""
+Validation script with Wandb integration
+"""
 import os
 import shutil
 import torch
@@ -11,14 +14,16 @@ from torch.optim.lr_scheduler import MultiStepLR
 import torch.backends.cudnn as cudnn
 from torchvision import transforms
 import numpy as np
+import wandb
 
 from models.grid_proto_fewshot import FewShotSeg
 
-from dataloaders.dev_customized_medv1 import med_fewshot_val
-from dataloaders.ManualAnnoDatasetv1 import ManualAnnoDataset
-from dataloaders.GenericSuperDatasetv1 import SuperpixelDataset
+from dataloaders.dev_customized_med import med_fewshot_val
+from dataloaders.ManualAnnoDatasetv2 import ManualAnnoDataset
+from dataloaders.GenericSuperDatasetv2 import SuperpixelDataset
 from dataloaders.dataset_utils import DATASET_INFO, get_normalize_op
 from dataloaders.niftiio import convert_to_sitk
+import dataloaders.augutils as myaug
 
 from util.metric import Metric
 
@@ -32,10 +37,450 @@ import tqdm
 import SimpleITK as sitk
 from torchvision.utils import make_grid
 
-from models.agun_model import AGUNet
+# config pre-trained model caching path
+os.environ['TORCH_HOME'] = "./pretrained_model"
+
+
+@ex.automain
+def main(_run, _config, _log):
+    # Initialize wandb for validation
+    wandb.init(
+        project=_config.get('wandb_project', 'medical-segmentation'),
+        name=_config.get('wandb_run_name', f"val_{_config['dataset']}_fold_{_config['eval_fold']}"),
+        config=_config,
+        tags=[_config['dataset'], f"fold_{_config['eval_fold']}", "validation"]
+    )
+    
+    if _run.observers:
+        os.makedirs(f'{_run.observers[0].dir}/interm_preds', exist_ok=True)
+        for source_file, _ in _run.experiment_info['sources']:
+            os.makedirs(os.path.dirname(f'{_run.observers[0].dir}/source/{source_file}'),
+                        exist_ok=True)
+            _run.observers[0].save_file(source_file, f'source/{source_file}')
+        shutil.rmtree(f'{_run.observers[0].basedir}/_sources')
+
+    cudnn.enabled = True
+    cudnn.benchmark = True
+    torch.cuda.set_device(device=_config['gpu_id'])
+    torch.set_num_threads(1)
+
+    _log.info(f'###### Reload model {_config["reload_model_path"]} ######')
+    model = FewShotSeg(pretrained_path=None, cfg=_config['model'])
+    model.load_state_dict(torch.load(_config['reload_model_path'])['model'], strict=False)
+
+    model = model.cuda()
+    model.eval()
+
+    _log.info('###### Load data ######')
+    data_name = _config['dataset']
+    if data_name == 'CHAOST2_Superpix':
+        baseset_name = 'CHAOST2'
+        max_label = 4
+    elif data_name == 'C0_Superpix':
+        raise NotImplementedError
+        baseset_name = 'C0'
+        max_label = 3
+    elif data_name == 'SABS_Superpix':
+        baseset_name = 'SABS'
+        max_label = 13
+    else:
+        raise ValueError(f'Dataset: {data_name} not found')
+
+    test_labels = DATASET_INFO[baseset_name]['LABEL_GROUP']['pa_all'] - DATASET_INFO[baseset_name]['LABEL_GROUP'][_config["label_sets"]]
+
+    te_transforms = None
+    assert _config['scan_per_load'] < 0
+
+    _log.info(f'###### Labels excluded in training : {[lb for lb in _config["exclude_cls_list"]]} ######')
+    _log.info(f'###### Unseen labels evaluated in testing: {[lb for lb in test_labels]} ######')
+
+    if baseset_name == 'CHAOST2':
+        tr_parent = SuperpixelDataset(
+            which_dataset=baseset_name,
+            base_dir=_config['path'][data_name]['data_dir'],
+            idx_split=_config['eval_fold'],
+            mode='train',
+            min_fg=str(_config["min_fg_data"]),
+            transform_param_limits=myaug.augs[_config['which_aug']],
+            nsup=_config['task']['n_shots'],
+            scan_per_load=_config['scan_per_load'],
+            exclude_list=_config["exclude_cls_list"],
+            superpix_scale=_config["superpix_scale"],
+            fix_length=_config["max_iters_per_load"] if (data_name == 'C0_Superpix') or (data_name == 'CHAOST2_Superpix') else None,
+            dataset_config=_config['DATASET_CONFIG']
+        )
+        norm_func = tr_parent.norm_func
+    else:
+        norm_func = get_normalize_op(modality='MR', fids=None)
+
+    te_dataset, te_parent = med_fewshot_val(
+        dataset_name=baseset_name,
+        base_dir=_config['path'][baseset_name]['data_dir'],
+        idx_split=_config['eval_fold'],
+        scan_per_load=_config['scan_per_load'],
+        act_labels=test_labels,
+        npart=_config['task']['npart'],
+        nsup=_config['task']['n_shots'],
+        extern_normalize_func=norm_func
+    )
+
+    ### dataloaders
+    testloader = DataLoader(
+        te_dataset,
+        batch_size=1,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=False,
+        drop_last=False
+    )
+
+    _log.info('###### Set validation nodes ######')
+    _scan_ids = te_parent.scan_ids
+    mar_val_metric_nodes = {}
+
+    _log.info('###### Starting validation ######')
+    model.eval()
+
+    # Initialize metrics tracking
+    all_scan_dice_scores = []
+    all_scan_precision_scores = []
+    all_scan_recall_scores = []
+
+    with torch.no_grad():
+        save_pred_buffer_ = {}  # indexed by class
+        
+        for sup_idx in range(len(_scan_ids)):
+            _log.info(f'###### Set validation nodes for support id {_scan_ids[sup_idx]} ######')
+            mar_val_metric_nodes[_scan_ids[sup_idx]] = Metric(max_label=max_label, 
+                                                             n_scans=len(te_dataset.dataset.pid_curr_load) - _config['task']['n_shots'])
+            mar_val_metric_nodes[_scan_ids[sup_idx]].reset()
+
+            save_pred_buffer = {}
+
+            for curr_lb in test_labels:
+                te_dataset.set_curr_cls(curr_lb)
+                support_batched = te_parent.get_support(curr_class=curr_lb, 
+                                                        class_idx=[curr_lb], 
+                                                        scan_idx=[sup_idx], 
+                                                        npart=_config['task']['npart'])
+
+                support_images = [[shot.cuda() for shot in way]
+                                    for way in support_batched['support_images']]
+                
+                suffix = 'mask'
+                support_fg_mask = [[shot[f'fg_{suffix}'].float().cuda() for shot in way]
+                                    for way in support_batched['support_mask']]
+                support_bg_mask = [[shot[f'bg_{suffix}'].float().cuda() for shot in way]
+                                    for way in support_batched['support_mask']]
+
+                curr_scan_count = -1
+                _lb_buffer = {}
+                last_qpart = 0
+
+                for sample_batched in testloader:
+                    _scan_id = sample_batched["scan_id"][0]
+                    if _scan_id in te_parent.potential_support_sid:
+                        continue
+                        
+                    if sample_batched["is_start"]:
+                        ii = 0
+                        curr_scan_count += 1
+                        _scan_id = sample_batched["scan_id"][0]
+                        outsize = te_dataset.dataset.info_by_scan[_scan_id]["array_size"]
+                        outsize = (256, 256, outsize[0])
+                        
+                        _pred = np.zeros(outsize, dtype=np.float32)
+                        _pred.fill(np.nan)
+                        _labels = np.zeros(outsize, dtype=np.float32)
+                        _qimgs = np.zeros((3, 256, 256, outsize[-1]), dtype=np.float32)
+                        supimgs = np.zeros((3, 256, 256, outsize[-1]), dtype=np.float32)
+                        supfgs = np.zeros((256, 256, outsize[-1]), dtype=np.float32)
+                        _means = np.zeros((1, 1, 1, outsize[-1]), dtype=np.float32)
+                        _stds = np.zeros((1, 1, 1, outsize[-1]), dtype=np.float32)
+
+                    q_part = sample_batched["part_assign"]
+                    query_images = [sample_batched['image'].cuda()]
+                    query_labels = torch.cat([sample_batched['label'].cuda()], dim=0)
+
+                    sup_img_part = [[shot_tensor.unsqueeze(0) for shot_tensor in support_images[0][q_part]]]
+                    sup_fgm_part = [[shot_tensor.unsqueeze(0) for shot_tensor in support_fg_mask[0][q_part]]]
+                    sup_bgm_part = [[shot_tensor.unsqueeze(0) for shot_tensor in support_bg_mask[0][q_part]]]
+
+                    query_pred, _, _, _ = model(sup_img_part, sup_fgm_part, sup_bgm_part, query_images, 
+                                              isval=True, val_wsize=_config["val_wsize"])
+
+                    query_pred = query_pred.argmax(dim=1).float().cpu().numpy()
+                    
+                    _pred[..., ii] = query_pred[0].copy()
+                    _labels[..., ii] = query_labels[0].detach().cpu().clone().numpy()
+                    _qimgs[..., ii] = query_images[0].detach().cpu().clone().numpy()
+                    _means[..., ii] = sample_batched["mean"][0]
+                    _stds[..., ii] = sample_batched["std"][0]
+                    supimgs[..., ii] = sup_img_part[0][0][0].cpu().numpy()
+                    supfgs[..., ii] = sup_fgm_part[0][0][0].cpu().numpy()
+
+                    if (sample_batched["z_id"] - sample_batched["z_max"] <= _config['z_margin']) and \
+                       (sample_batched["z_id"] - sample_batched["z_min"] >= -1 * _config['z_margin']):
+                        mar_val_metric_nodes[_scan_ids[sup_idx]].record(_pred[..., ii], _labels[..., ii], 
+                                                                       labels=[curr_lb], n_scan=curr_scan_count)
+
+                    ii += 1
+                    
+                    if sample_batched["is_end"]:
+                        if _config['dataset'] != 'C0':
+                            _lb_buffer[_scan_id] = [_pred.transpose(2, 0, 1),
+                                                    _labels.transpose(2, 0, 1),
+                                                    _qimgs.transpose(3, 1, 2, 0), 
+                                                    _means.transpose(3, 1, 2, 0), 
+                                                    _stds.transpose(3, 1, 2, 0), 
+                                                    supimgs.transpose(3, 1, 2, 0),
+                                                    supfgs.transpose(2, 0, 1)]
+                        else:
+                            _lb_buffer[_scan_id] = [_pred, _labels, _qimgs, _means, _stds, sup_img_part, sup_fgm_part]
+
+                save_pred_buffer[str(curr_lb)] = _lb_buffer
+            save_pred_buffer_[_scan_ids[sup_idx]] = save_pred_buffer
+
+        ### Save results and create visualizations
+        visualization_images = []
+        
+        for _sup_id, saved_pred in save_pred_buffer_.items():
+            for curr_lb, _preds in saved_pred.items():
+                for _scan_id, item in _preds.items():
+                    gif_frames = []
+                    _pred, _label, _qimg, _mean, _std, _supimg, _supfg = item
+                    
+                    # Normalize predictions and labels for visualization
+                    _pred_vis = 255 * (_pred - _pred.min(axis=(1, 2), keepdims=True)) / \
+                               (1e-6 + _pred.max(axis=(1, 2), keepdims=True) - _pred.min(axis=(1, 2), keepdims=True))
+                    _pred_vis = _pred_vis.astype(np.uint8)
+                    _label_vis = (255 * _label).astype(np.uint8)
+                    _supfg_vis = (255 * _supfg).astype(np.uint8)
+                    
+                    # Create visualizations for a subset of slices
+                    n_slices_to_show = min(5, _pred.shape[0])
+                    slice_indices = np.linspace(0, _pred.shape[0]-1, n_slices_to_show, dtype=int)
+                    
+                    for idx, i in enumerate(slice_indices):
+                        fid = os.path.join(f'{_run.observers[0].dir}/interm_preds', 
+                                          f'scan_{_sup_id}_{_scan_id}_label_{curr_lb}_{i}.png')
+                        
+                        # Process query image
+                        qim = _qimg[i] * _std[i] + _mean[i]
+                        qim = 255 * (qim - qim.min()) / (qim.max() - qim.min() + 1e-6)
+                        qim = qim.astype(np.uint8)
+                        qim = Image.fromarray(qim, 'RGB').convert("RGBA")
+
+                        # Create prediction overlay
+                        im1 = np.stack([_pred_vis[i] * 0.8, np.zeros(_pred_vis[i].shape), 
+                                       np.zeros(_pred_vis[i].shape)], axis=2)
+                        im1 = im1.astype(np.uint8)
+                        im1 = Image.fromarray(im1, 'RGB').convert("RGBA")
+
+                        # Create ground truth overlay
+                        im2 = np.stack([np.zeros(_label_vis[i].shape), _label_vis[i] * 0.8, 
+                                       np.zeros(_label_vis[i].shape)], axis=2)
+                        im2 = im2.astype(np.uint8)
+                        im2 = Image.fromarray(im2, 'RGB').convert("RGBA")
+                        
+                        # Blend images
+                        qim = Image.blend(qim, im1, alpha=0.5)
+                        qim = Image.blend(qim, im2, alpha=0.3)
+
+                        # Process support image
+                        supimg = _supimg[i] * _std[i] + _mean[i]
+                        supimg = (supimg - supimg.min()) / (supimg.max() - supimg.min()) * 255
+                        supimg = supimg.astype(np.uint8)
+                        supimg = Image.fromarray(supimg, 'RGB').convert("RGBA")
+
+                        # Create support foreground overlay
+                        supfg = _supfg[i]
+                        supfg = np.stack([np.zeros(supfg.shape), supfg, np.zeros(supfg.shape)], axis=2)
+                        supfg = supfg.astype(np.uint8)
+                        supfg = Image.fromarray(supfg, 'RGB').convert("RGBA")
+
+                        supimg = Image.blend(supimg, supfg, alpha=0.4)
+
+                        # Create combined image
+                        new_image = Image.new('RGB', (2 * 256, 256), (250, 250, 250))
+                        new_image.paste(supimg, (0, 0))
+                        new_image.paste(qim, (256, 0))
+
+                        gif_frames.append(new_image)
+                        new_image.save(fid)
+                        
+                        # Add to visualization collection for wandb
+                        if idx < 3:  # Only log first 3 slices per scan to avoid cluttering
+                            visualization_images.append(wandb.Image(
+                                new_image, 
+                                caption=f"Support_{_sup_id}_Scan_{_scan_id}_Label_{curr_lb}_Slice_{i}"
+                            ))
+                    
+                    # Create and save GIF
+                    if gif_frames:
+                        gif_fid = os.path.join(f'{_run.observers[0].dir}/interm_preds', 
+                                              f'scan_{_sup_id}_{_scan_id}_label_{curr_lb}.gif')
+                        gif_frames[0].save(gif_fid, format="GIF", append_images=gif_frames, 
+                                          save_all=True, duration=500, loop=0)
+                        _log.info(f'###### {gif_fid} has been saved #####')
+
+        # Log visualizations to wandb
+        if visualization_images:
+            wandb.log({"validation/predictions": visualization_images})
+
+        del save_pred_buffer
+
+    del sample_batched, support_images, support_bg_mask, query_images, query_labels, query_pred
+
+    # Compute dice scores by scan
+    scan_metrics = {}
+    
+    for i in range(len(_scan_ids)):
+        print(f"========== Metrics for Support Scan {_scan_ids[i]} ============")
+        m_classDice, _, m_meanDice, _, m_rawDice = mar_val_metric_nodes[_scan_ids[i]].get_mDice(
+            labels=sorted(test_labels), n_scan=None, give_raw=True)
+
+        m_classPrec, _, m_meanPrec, _, m_classRec, _, m_meanRec, _, m_rawPrec, m_rawRec = \
+            mar_val_metric_nodes[_scan_ids[i]].get_mPrecRecall(labels=sorted(test_labels), n_scan=None, give_raw=True)
+
+        mar_val_metric_nodes[_scan_ids[i]].reset()
+
+        # Store metrics
+        scan_id = _scan_ids[i]
+        scan_metrics[scan_id] = {
+            'dice': m_meanDice,
+            'precision': m_meanPrec,
+            'recall': m_meanRec,
+            'class_dice': m_classDice.tolist(),
+            'class_precision': m_classPrec.tolist(),
+            'class_recall': m_classRec.tolist()
+        }
+
+        # Track for overall statistics
+        all_scan_dice_scores.append(m_meanDice)
+        all_scan_precision_scores.append(m_meanPrec)
+        all_scan_recall_scores.append(m_meanRec)
+
+        # Log to wandb
+        wandb.log({
+            f"validation/dice_scan_{scan_id}": m_meanDice,
+            f"validation/precision_scan_{scan_id}": m_meanPrec,
+            f"validation/recall_scan_{scan_id}": m_meanRec,
+        })
+
+        # write validation result to log file
+        _run.log_scalar('mar_val_batches_classDice', m_classDice.tolist())
+        _run.log_scalar('mar_val_batches_meanDice', m_meanDice.tolist())
+        _run.log_scalar('mar_val_batches_rawDice', m_rawDice.tolist())
+
+        _run.log_scalar('mar_val_batches_classPrec', m_classPrec.tolist())
+        _run.log_scalar('mar_val_batches_meanPrec', m_meanPrec.tolist())
+        _run.log_scalar('mar_val_batches_rawPrec', m_rawPrec.tolist())
+
+        _run.log_scalar('mar_val_batches_classRec', m_classRec.tolist())
+        _run.log_scalar('mar_val_al_batches_meanRec', m_meanRec.tolist())
+        _run.log_scalar('mar_val_al_batches_rawRec', m_rawRec.tolist())
+
+        _log.info(f'mar_val batches classDice: {m_classDice}')
+        _log.info(f'mar_val batches meanDice: {m_meanDice}')
+        _log.info(f'mar_val batches classPrec: {m_classPrec}')
+        _log.info(f'mar_val batches meanPrec: {m_meanPrec}')
+        _log.info(f'mar_val batches classRec: {m_classRec}')
+        _log.info(f'mar_val batches meanRec: {m_meanRec}')
+
+        print(f"============ Completed Support Scan {_scan_ids[i]} ============")
+
+    # Compute and log overall metrics
+    overall_dice = np.mean(all_scan_dice_scores)
+    overall_precision = np.mean(all_scan_precision_scores)
+    overall_recall = np.mean(all_scan_recall_scores)
+    
+    dice_std = np.std(all_scan_dice_scores)
+    precision_std = np.std(all_scan_precision_scores)
+    recall_std = np.std(all_scan_recall_scores)
+
+    print(f"========== Overall Validation Results ============")
+    print(f"Overall Dice: {overall_dice:.4f} ± {dice_std:.4f}")
+    print(f"Overall Precision: {overall_precision:.4f} ± {precision_std:.4f}")
+    print(f"Overall Recall: {overall_recall:.4f} ± {recall_std:.4f}")
+
+    # Log overall metrics to wandb
+    wandb.log({
+        "validation/overall_dice": overall_dice,
+        "validation/overall_precision": overall_precision,
+        "validation/overall_recall": overall_recall,
+        "validation/dice_std": dice_std,
+        "validation/precision_std": precision_std,
+        "validation/recall_std": recall_std,
+    })
+
+    # Create summary table for wandb
+    import pandas as pd
+    
+    summary_data = []
+    for scan_id, metrics in scan_metrics.items():
+        summary_data.append({
+            'Scan_ID': scan_id,
+            'Dice': f"{metrics['dice']:.4f}",
+            'Precision': f"{metrics['precision']:.4f}",
+            'Recall': f"{metrics['recall']:.4f}"
+        })
+    
+    # Add overall row
+    summary_data.append({
+        'Scan_ID': 'Overall',
+        'Dice': f"{overall_dice:.4f} ± {dice_std:.4f}",
+        'Precision': f"{overall_precision:.4f} ± {precision_std:.4f}",
+        'Recall': f"{overall_recall:.4f} ± {recall_std:.4f}"
+    })
+    
+    # Log table to wandb
+    wandb.log({"validation/results_summary": wandb.Table(dataframe=pd.DataFrame(summary_data))})
+
+    _log.info(f'End of validation')
+    
+    # Finish wandb run
+    wandb.finish()
+    
+    return 1
+"""
+import os
+import shutil
+import torch
+import torch.nn as nn
+import torch.optim
+from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import MultiStepLR
+import torch.backends.cudnn as cudnn
+from torchvision import transforms
+import numpy as np
+
+from models.grid_proto_fewshot import FewShotSeg
+
+from dataloaders.dev_customized_med import med_fewshot_val
+from dataloaders.ManualAnnoDatasetv2 import ManualAnnoDataset
+from dataloaders.GenericSuperDatasetv2 import SuperpixelDataset
+from dataloaders.dataset_utils import DATASET_INFO, get_normalize_op
+from dataloaders.niftiio import convert_to_sitk
+import dataloaders.augutils as myaug
+
+from util.metric import Metric
+
+from config_ssl_upload import ex
+
+import matplotlib.pyplot as plt
+from PIL import Image
+import imageio
+
+import tqdm
+import SimpleITK as sitk
+from torchvision.utils import make_grid
+
+#from models.agun_model import AGUNet
 
 # config pre-trained model caching path
 os.environ['TORCH_HOME'] = "./pretrained_model"
+
 
 @ex.automain
 def main(_run, _config, _log):
@@ -60,18 +505,18 @@ def main(_run, _config, _log):
     model.eval()
 
     _log.info('###### Load data ######')
-    ### Training set
+        ### Training set
     data_name = _config['dataset']
-    if data_name == 'SABS_Superpix':
-        baseset_name = 'SABS'
-        max_label = 13
+    if data_name == 'CHAOST2_Superpix':
+        baseset_name = 'CHAOST2'
+        max_label = 4
     elif data_name == 'C0_Superpix':
         raise NotImplementedError
         baseset_name = 'C0'
         max_label = 3
-    elif data_name == 'CHAOST2_Superpix':
-        baseset_name = 'CHAOST2'
-        max_label = 4
+    elif data_name == 'SABS_Superpix':
+        baseset_name = 'SABS'
+        max_label = 13
     else:
         raise ValueError(f'Dataset: {data_name} not found')
 
@@ -85,14 +530,14 @@ def main(_run, _config, _log):
     _log.info(f'###### Labels excluded in training : {[lb for lb in _config["exclude_cls_list"]]} ######')
     _log.info(f'###### Unseen labels evaluated in testing: {[lb for lb in test_labels]} ######')
 
-    if baseset_name == 'SABS': # for CT we need to know statistics of 
+    if baseset_name == 'CHAOST2': # for CT we need to know statistics of 
         tr_parent = SuperpixelDataset( # base dataset
             which_dataset = baseset_name,
             base_dir=_config['path'][data_name]['data_dir'],
             idx_split = _config['eval_fold'],
             mode='train',
             min_fg=str(_config["min_fg_data"]), # dummy entry for superpixel dataset
-            transform_param_limits=myaug.augs[_config['which_aug']],
+            transform_param_limits= myaug.augs[_config['which_aug']],
             nsup = _config['task']['n_shots'],
             scan_per_load = _config['scan_per_load'],
             exclude_list = _config["exclude_cls_list"],
@@ -183,14 +628,22 @@ def main(_run, _config, _log):
                         _scan_id = sample_batched["scan_id"][0]
                         outsize = te_dataset.dataset.info_by_scan[_scan_id]["array_size"]
                         outsize = (256, 256, outsize[0]) # original image read by itk: Z, H, W, in prediction we use H, W, Z
-                        _pred = np.zeros( outsize )
+                        #_pred = np.zeros( outsize )
+                        
+                        #_labels = np.zeros(outsize)
+                        #_qimgs = np.zeros((3,256,256,outsize[-1])) #outsize)
+                        #supimgs = np.zeros((3,256,256,outsize[-1])) #outsize)
+                        #supfgs = np.zeros((256,256,outsize[-1])) #outsize)
+                        #_means = np.zeros((1,1,1,outsize[-1]))
+                        #_stds = np.zeros((1,1,1,outsize[-1]))
+                        _pred = np.zeros(outsize, dtype=np.float32)
                         _pred.fill(np.nan)
-                        _labels = np.zeros(outsize)
-                        _qimgs = np.zeros((3,256,256,outsize[-1])) #outsize)
-                        supimgs = np.zeros((3,256,256,outsize[-1])) #outsize)
-                        supfgs = np.zeros((256,256,outsize[-1])) #outsize)
-                        _means = np.zeros((1,1,1,outsize[-1]))
-                        _stds = np.zeros((1,1,1,outsize[-1]))
+                        _labels = np.zeros(outsize, dtype=np.float32)
+                        _qimgs = np.zeros((3,256,256,outsize[-1]), dtype=np.float32)
+                        supimgs = np.zeros((3,256,256,outsize[-1]), dtype=np.float32)
+                        supfgs = np.zeros((256,256,outsize[-1]), dtype=np.float32)  
+                        _means = np.zeros((1,1,1,outsize[-1]), dtype=np.float32)
+                        _stds = np.zeros((1,1,1,outsize[-1]), dtype=np.float32)
 
                     q_part = sample_batched["part_assign"] # the chunck of query, for assignment with support
                     query_images = [sample_batched['image'].cuda()]
@@ -246,7 +699,7 @@ def main(_run, _config, _log):
                                                     supimgs.transpose(3,1,2,0),
                                                     supfgs.transpose(2,0,1)] # H, W, Z -> to Z H W
                         else:
-                            lb_buffer[_scan_id] = [_pred, _labels, _qimgs, _means, _stds, sup_img_part, sup_fgm_part]
+                            _lb_buffer[_scan_id] = [_pred, _labels, _qimgs, _means, _stds, sup_img_part, sup_fgm_part]
 
                 save_pred_buffer[str(curr_lb)] = _lb_buffer
 
@@ -358,4 +811,4 @@ def main(_run, _config, _log):
     _log.info(f'End of validation')
     return 1
 
-
+"""
