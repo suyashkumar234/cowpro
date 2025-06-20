@@ -13,8 +13,8 @@ import torch.backends.cudnn as cudnn
 import numpy as np
 
 from models.grid_proto_fewshot import FewShotSeg
-from dataloaders.dev_customized_medv1 import med_fewshot
-from dataloaders.GenericSuperDatasetv1 import SuperpixelDataset
+from dataloaders.dev_customized_med import med_fewshot, update_loader_dset, med_fewshot_val 
+from dataloaders.GenericSuperDatasetv2 import SuperpixelDataset
 from dataloaders.dataset_utils import DATASET_INFO
 import dataloaders.augutils as myaug
 
@@ -23,6 +23,7 @@ from util.metric import Metric
 
 from config_ssl_upload import ex
 import tqdm
+import json, copy, ast
 import time
 
 import matplotlib
@@ -31,6 +32,8 @@ import matplotlib.pyplot as plt
 
 # config pre-trained model caching path
 os.environ['TORCH_HOME'] = "./pretrained_model"
+
+
 
 @ex.automain
 def main(_run, _config, _log):
@@ -42,6 +45,9 @@ def main(_run, _config, _log):
                         exist_ok=True)
             _run.observers[0].save_file(source_file, f'source/{source_file}')
         shutil.rmtree(f'{_run.observers[0].basedir}/_sources')
+        with open("config.json", "w") as f:
+            json.dump(_config, f, indent=4)
+
 
     set_seed(_config['seed'])
     cudnn.enabled = True
@@ -59,15 +65,20 @@ def main(_run, _config, _log):
     _log.info('###### Load data ######')
     ### Training set
     data_name = _config['dataset']
-    if data_name == 'SABS_Superpix':
-        baseset_name = 'SABS'
+    if data_name == 'CHAOST2_Superpix':
+        baseset_name = 'CHAOST2'
     elif data_name == 'C0_Superpix':
         raise NotImplementedError
         baseset_name = 'C0'
-    elif data_name == 'CHAOST2_Superpix':
-        baseset_name = 'CHAOST2'
+    elif data_name == 'SABS':  # ADD THIS FOR SUPERVISED LEARNING
+        baseset_name = 'SABS'
+    elif data_name == 'SABS_Superpix':
+        baseset_name = 'SABS'
+    elif data_name=='FLARE22Train_Superpix':
+        baseset_name='FLARE22Train'
     else:
         raise ValueError(f'Dataset: {data_name} not found')
+    
 
     ###================== Transforms for data augmentation =============================== ###
     tr_transforms = myaug.transform_with_label({'aug': myaug.augs[_config['which_aug']]})
@@ -78,7 +89,43 @@ def main(_run, _config, _log):
     _log.info(f'###### Labels excluded in training : {[lb for lb in _config["exclude_cls_list"]]} ######')
     _log.info(f'###### Unseen labels evaluated in testing: {[lb for lb in test_labels]} ######')
 
-    tr_parent = SuperpixelDataset( # base dataset
+    
+
+    tr_transforms_supervised = None 
+
+    # Create supervised dataset
+    dataset, tr_parent = med_fewshot(
+    dataset_name = baseset_name,
+    base_dir=_config['path'][data_name]['data_dir'],
+    idx_split = _config['eval_fold'],
+    mode='train',
+    scan_per_load = _config['scan_per_load'],
+    transforms = tr_transforms,
+    act_labels = DATASET_INFO[baseset_name]['LABEL_GROUP']['pa_all'],
+    n_ways = 1,
+    n_shots = 1,
+    nsup = _config['task']['n_shots'],
+    fix_parent_len = _config["max_iters_per_load"] if _config['fix_length'] else None,
+    max_iters_per_load=_config["max_iters_per_load"],
+    min_fg=str(_config["min_fg_data"]),
+    n_queries=1,
+    exclude_list = _config["exclude_cls_list"],
+    dataset_config = _config['DATASET_CONFIG'],
+    client_eval = True if _config.get('client_eval', False) else False
+)
+    dataset.norm_func = tr_parent.norm_func
+
+# Update the dataloader creation
+    trainloader = DataLoader(
+    dataset,  # Use the paired dataset instead of tr_parent
+    batch_size=_config['batch_size'],
+    shuffle=True,
+    num_workers=_config['num_workers'],
+    pin_memory=True,
+    drop_last=True
+)
+
+    '''tr_parent = SuperpixelDataset( # base dataset
         which_dataset = baseset_name,
         base_dir=_config['path'][data_name]['data_dir'],
         idx_split = _config['eval_fold'],
@@ -99,10 +146,11 @@ def main(_run, _config, _log):
         tr_parent,
         batch_size=_config['batch_size'],
         shuffle=True,
-        num_workers=_config['num_workers'],
+        #num_workers=_config['num_workers'],
+        num_workers=0,
         pin_memory=True,
         drop_last=True
-    )
+    )'''
 
     _log.info('###### Set optimizer ######')
     if _config['optim_type'] == 'sgd':
@@ -151,6 +199,8 @@ def main(_run, _config, _log):
             # FIXME: in the model definition, filter out the failure case where 
             # pseudolabel falls outside of image or too small to calculate a prototype
             # try:
+            
+
             mean = [m for m in sample_batched["mean"]]
             std = [s for s in sample_batched["std"]]
             ########################################################################
@@ -222,13 +272,14 @@ def main(_run, _config, _log):
                 _log.info('###### Taking snapshot ######')
                 torch.save({'model':model.state_dict(),'opt':optimizer.state_dict(),'sch':scheduler.state_dict()},
                            os.path.join(f'{_run.observers[0].dir}/snapshots', f'{i_iter + 1}.pth'))
+                
 
             if data_name == 'C0_Superpix' or data_name == 'CHAOST2_Superpix':
                 if (i_iter + 1) % _config['max_iters_per_load'] == 0:
                     _log.info('###### Reloading dataset ######')
-                    trainloader.dataset.reload_buffer()
+                    #trainloader.dataset.reload_buffer()
+                    update_loader_dset(trainloader, tr_parent)
                     print(f'###### New dataset with {len(trainloader.dataset)} slices has been loaded ######')
 
             if (i_iter - 2) > _config['n_steps']:
                 return 1 # finish up
-
