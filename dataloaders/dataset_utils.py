@@ -26,16 +26,29 @@ DATASET_INFO = {
     "SABS": {
             'PSEU_LABEL_NAME': ["BGD", "SUPFG"],
 
-            'REAL_LABEL_NAME': ["BGD", "SPLEEN", "KID_R", "KID_l", "GALLBLADDER", "ESOPHAGUS", "LIVER", "STOMACH", "AORTA", "IVC",\
+            'REAL_LABEL_NAME': ["BGD", "SPLEEN", "RK", "LK", "GALLBLADDER", "ESOPHAGUS", "LIVER", "STOMACH", "AORTA", "IVC",\
               "PS_VEIN", "PANCREAS", "AG_R", "AG_L"],
             '_SEP': [0, 6, 12, 18, 24, 30],
             'MODALITY': 'CT',
             'LABEL_GROUP':{
-                'pa_all': set( [1,2,3,6]  ),
+                'pa_all': set([1,2,3,4,5,6,7,8,9,10,11,12,13]),  # All organs
                 0: set([1,6]  ), # upper_abdomen: spleen + liver as training, kidneis are testing
                 1: set( [2,3] ), # lower_abdomen
+                2: set([1,4,5,6,7,8,9,10,11,12,13]),
                     }
-            }
+            },
+    "FLARE22Train":{
+            'PSEU_LABEL_NAME':["BGD","SUPFG"], 
+            'REAL_LABEL_NAME':["BGD","LIVER","RK","SPLEEN","PANCREAS","AORTA","INFERIOR VENA CAVA","RIGHT ADRENAL GLAND","LEFT ADRENAL GLAND",\
+              "GALLBLADDER","ESOPHAGUS","STOMACH","DUODENUM","LK"],
+            '_SEP':[0, 1, 4, 6, 9, 12, 14],
+            'MODALITY':'CT',
+            'LABEL_GROUP': {
+                'pa_all':set([1,2,3,13]),
+                0: set([1,3]), # upper_abdomen
+                1: set([2,13]), # lower_abdomen
+                    }
+                    }
 
 }
 
@@ -93,7 +106,9 @@ def get_normalize_op(modality, fids):
     if modality == 'MR':
 
         def MR_normalize(x_in):
-            return (x_in - x_in.mean()) / x_in.std()
+            mean = x_in.mean()
+            std = x_in.std()
+            return (x_in - x_in.mean()) / x_in.std(),mean,std
 
         return MR_normalize #, {'mean': None, 'std': None} # we do not really need the global statistics for MR
 
@@ -106,7 +121,7 @@ def get_normalize_op(modality, fids):
             """
             Normalizing CT images, based on global statistics
             """
-            return (x_in - ct_mean) / ct_std
+            return (x_in - ct_mean) / ct_std, ct_mean,ct_std
 
         return CT_normalize #, {'mean': ct_mean, 'std': ct_std}
 
