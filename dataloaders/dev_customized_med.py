@@ -48,7 +48,135 @@ def getMaskOnly(label, class_id, class_ids):
 def getMasks(*args, **kwargs):
     raise NotImplementedError
 
+# Fix for dataloaders/dev_customized_med.py
+# Replace the fewshot_pairing function with this fixed version
+
 def fewshot_pairing(paired_sample, n_ways, n_shots, cnt_query, coco=False, mask_only = True):
+    """
+    Postprocess paired sample for fewshot settings
+    For now only 1-way is tested but we leave multi-way possible (inherited from original PANet)
+
+    Args:
+        paired_sample:
+            data sample from a PairedDataset
+        n_ways:
+            n-way few-shot learning
+        n_shots:
+            n-shot few-shot learning
+        cnt_query:
+            number of query images for each class in the support set
+        coco:
+            MS COCO dataset. This is from the original PANet dataset but lets keep it for further extension
+        mask_only:
+            only give masks and no scribbles/ instances. Suitable for medical images (for now)
+    """
+    if not mask_only:
+        raise NotImplementedError
+    ###### Compose the support and query image list ######
+    cumsum_idx = np.cumsum([0,] + [n_shots + x for x in cnt_query]) # seperation for supports and queries
+
+    # support class ids
+    class_ids = [paired_sample[cumsum_idx[i]]['basic_class_id'] for i in range(n_ways)] # class ids for each image (support and query)
+
+    # support images
+    support_images = [[paired_sample[cumsum_idx[i] + j]['image'] for j in range(n_shots)]
+                      for i in range(n_ways)] # fetch support images for each class
+
+    # support image labels
+    if coco:
+        support_labels = [[paired_sample[cumsum_idx[i] + j]['label'][class_ids[i]]
+                           for j in range(n_shots)] for i in range(n_ways)]
+    else:
+        support_labels = [[paired_sample[cumsum_idx[i] + j]['label'] for j in range(n_shots)]
+                          for i in range(n_ways)]
+
+    if not mask_only:
+        support_scribbles = [[paired_sample[cumsum_idx[i] + j]['scribble'] for j in range(n_shots)]
+                             for i in range(n_ways)]
+        support_insts = [[paired_sample[cumsum_idx[i] + j]['inst'] for j in range(n_shots)]
+                         for i in range(n_ways)]
+    else:
+        # FIX: Initialize support_scribbles and support_insts when mask_only=True
+        support_scribbles = []
+        support_insts = []
+
+    # query images, masks and class indices
+    query_images = [paired_sample[cumsum_idx[i+1] - j - 1]['image'] for i in range(n_ways)
+                    for j in range(cnt_query[i])]
+    if coco:
+        query_labels = [paired_sample[cumsum_idx[i+1] - j - 1]['label'][class_ids[i]]
+                        for i in range(n_ways) for j in range(cnt_query[i])]
+    else:
+        query_labels = [paired_sample[cumsum_idx[i+1] - j - 1]['label'] for i in range(n_ways)
+                        for j in range(cnt_query[i])]
+    query_cls_idx = [sorted([0,] + [class_ids.index(x) + 1
+                                    for x in set(np.unique(query_label)) & set(class_ids)])
+                     for query_label in query_labels]
+
+    ###### Generate support image masks ######
+    if not mask_only:
+        support_mask = [[getMasks(support_labels[way][shot], support_scribbles[way][shot],
+                                 class_ids[way], class_ids)
+                         for shot in range(n_shots)] for way in range(n_ways)]
+    else:
+        support_mask = [[getMaskOnly(support_labels[way][shot],
+                                 class_ids[way], class_ids)
+                         for shot in range(n_shots)] for way in range(n_ways)]
+
+    ###### Generate query label (class indices in one episode, i.e. the ground truth)######
+    query_labels_tmp = [torch.zeros_like(x) for x in query_labels]
+    for i, query_label_tmp in enumerate(query_labels_tmp):
+        query_label_tmp[query_labels[i] == 255] = 255
+        for j in range(n_ways):
+            query_label_tmp[query_labels[i] == class_ids[j]] = j + 1
+
+    ###### Generate query mask for each semantic class (including BG) ######
+    # BG class
+    query_masks = [[torch.where(query_label == 0,
+                                torch.ones_like(query_label),
+                                torch.zeros_like(query_label))[None, ...],]
+                   for query_label in query_labels]
+    # Other classes in query image
+    for i, query_label in enumerate(query_labels):
+        for idx in query_cls_idx[i][1:]:
+            mask = torch.where(query_label == class_ids[idx - 1],
+                               torch.ones_like(query_label),
+                               torch.zeros_like(query_label))[None, ...]
+            query_masks[i].append(mask)
+
+    # FIX: Extract mean and std from the original samples for training visualization
+    # Get mean and std from query samples (needed for training loop visualization)
+    query_means = []
+    query_stds = []
+    for i in range(n_ways):
+        for j in range(cnt_query[i]):
+            sample_idx = cumsum_idx[i+1] - j - 1
+            if 'mean' in paired_sample[sample_idx]:
+                query_means.append(paired_sample[sample_idx]['mean'])
+            else:
+                query_means.append(0.0)  # fallback
+            if 'std' in paired_sample[sample_idx]:
+                query_stds.append(paired_sample[sample_idx]['std'])
+            else:
+                query_stds.append(1.0)  # fallback
+
+    return {'class_ids': class_ids,
+            'support_images': support_images,
+            'support_mask': support_mask,
+            'support_inst': support_insts, # leave these interfaces
+            'support_scribbles': support_scribbles, 
+
+            'query_images': query_images,
+            'query_labels': query_labels_tmp,
+            'query_masks': query_masks,
+            'query_cls_idx': query_cls_idx,
+            
+            # FIX: Add mean and std for training loop
+            'mean': query_means,
+            'std': query_stds,
+           }
+
+'''def fewshot_pairing(paired_sample, n_ways, n_shots, cnt_query, coco=False, mask_only = True):
     """
     Postprocess paired sample for fewshot settings
     For now only 1-way is tested but we leave multi-way possible (inherited from original PANet)
@@ -150,7 +278,7 @@ def fewshot_pairing(paired_sample, n_ways, n_shots, cnt_query, coco=False, mask_
             'query_labels': query_labels_tmp,
             'query_masks': query_masks,
             'query_cls_idx': query_cls_idx,
-           }
+           }'''
 
 
 def med_fewshot(dataset_name, base_dir, idx_split, mode, scan_per_load,
@@ -167,7 +295,7 @@ def med_fewshot(dataset_name, base_dir, idx_split, mode, scan_per_load,
             choose from ('train', 'val', 'trainval', 'trainaug')
         idx_split:
             index of split
-        scan_per_load:
+        scan_per_load
             number of scans to load into memory as the dataset is large
             use that together with reload_buffer
         transforms:
