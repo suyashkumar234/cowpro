@@ -33,10 +33,16 @@ def cfg():
     seed = 1234
     gpu_id = 0
     mode = 'train' # for now only allows 'train' 
-    num_workers = 4 # 0 for debugging. 
+    num_workers = 0 # 0 for debugging. 
 
-    dataset = 'CHAOST2_Superpix' # i.e. abdominal MRI
+    dataset = 'SABS' # i.e. abdominal MRI
     use_coco_init = True # initialize backbone with MS_COCO initialization. Anyway coco does not contain medical images
+
+    ### Wandb Configuration
+    wandb_project = 'Cowpro'  # Change this to your project name
+    wandb_run_name = None  # Will be auto-generated if None
+    wandb_entity = None  # Your wandb entity/username, set to None for default
+    save_plots = True  # Whether to save prediction plots
 
     ### Training
     n_steps = 100100
@@ -45,17 +51,22 @@ def cfg():
     lr_step_gamma = 0.95
     ignore_label = 255
     print_interval = 500
-    save_snapshot_every = 25000
+    save_snapshot_every = 10000
     max_iters_per_load = 1000 # epoch size, interval for reloading the dataset
     scan_per_load = -1 # numbers of 3d scans per load for saving memory. If -1, load the entire dataset to the memory
     which_aug = 'sabs_aug' # standard data augmentation with intensity and geometric transforms
     input_size = (256, 256)
     min_fg_data='100' # when training with manual annotations, indicating number of foreground pixels in a single class single slice. This empirically stablizes the training process
-    label_sets = 0 # which group of labels taking as training (the rest are for testing)
-    exclude_cls_list = [2, 3] # testing classes to be excluded in training. Set to [] if testing under setting 1
+    label_sets = 2 # which group of labels taking as training (the rest are for testing)
+    exclude_cls_list = [2,3] # testing classes to be excluded in training. Set to [] if testing under setting 1
     usealign = True # see vanilla PANet
     use_wce = True
     viz = 1
+    fix_length= True
+    client_eval=True
+    eval_frequency = 10  # Evaluate every N epochs
+    save_plots = True  # Set to True to save validation plots
+
 
     ### Validation
     z_margin = 0 
@@ -82,6 +93,7 @@ def cfg():
     lambda_loss = {'loss1':0.0, 'loss2':1.0, 'loss3':0.0, 'loss4':0.0, 'loss5': 0.0}
 
     accum_iter = 1
+
 
 
     model = {
@@ -117,28 +129,39 @@ def cfg():
 
     path = {
         'log_dir': './runs',
-        'SABS':{'data_dir': "E:/Siladittya_JRF/cvpr2024/agun-sona-master/data/SABS/Abdomen/RawData/Training/sabs_CT_normalized"
+        'SABS':{'data_dir': "E:\Suyash\cowpro\data\SABS\sabs_CT_normalized"
             },
-        'C0':{'data_dir': "E:/Siladittya_JRF/cvpr2024/agun-sona-master/data"
+        'C0':{'data_dir': "E:\Suyash\cowpro\data"
             },
-        'CHAOST2':{'data_dir': "E:/Siladittya_JRF/cvpr2024/agun-sona-master/data/CHAOS/CHAOS_Train_Sets/Train_Sets/chaos_MR_T2_normalized/"
+        'CHAOST2':{'data_dir': "E:\Suyash\cowpro\data\CHAOST2\chaos_MR_T2_normalized"
             },
-        'SABS_Superpix':{'data_dir': "E:/Siladittya_JRF/cvpr2024/agun-sona-master/data/SABS/Abdomen/RawData/Training/sabs_CT_normalized"},
-        'C0_Superpix':{'data_dir': "E:/Siladittya_JRF/cvpr2024/agun-sona-master/data"},
-        'CHAOST2_Superpix':{'data_dir': "E:/Siladittya_JRF/cvpr2024/agun-sona-master/data/CHAOS/CHAOS_Train_Sets/Train_Sets/chaos_MR_T2_normalized/"},
+        'FLARE22Train':{'data_dir':"E:\Suyash\cowpro\data\FLARE22Train\flare_CT_normalized"
+            },
+        'SABS_Superpix':{'data_dir': "E:\Suyash\cowpro\data\SABS\sabs_CT_normalized"},
+        'C0_Superpix':{'data_dir': "E:\Suyash\cowpro\data"},
+        'CHAOST2_Superpix':{'data_dir': "E:\Suyash\cowpro\data\CHAOST2\chaos_MR_T2_normalized"},
+        'FLARE22Train_Superpix':{'data_dir':"E:\Suyash\cowpro\data\FLARE22Train\flare_CT_normalized"}
         }
 
-    DATASET_CONFIG = {'SABS':{'img_bname': f'E:/Siladittya_JRF/cvpr2024/agun-sona-master/data/SABS/Cervix/RawData/Training/sabs_CT_normalized/image_*.nii.gz',
-                        'out_dir': 'E:/Siladittya_JRF/cvpr2024/agun-sona-master/data/SABS/Cervix/RawData/Training/sabs_CT_normalized',
+    DATASET_CONFIG = {'SABS':{'img_bname': f'E:\Suyash\cowpro\data\SABS\sabs_CT_normalized/image_*.nii.gz',
+                        'out_dir': 'E:\Suyash\cowpro\data\SABS\sabs_CT_normalized',
                         'fg_thresh': 1e-4,
                         },
                       'CHAOST2':{
-                       'img_bname': f'E:/Siladittya_JRF/cvpr2024/agun-sona-master/data/CHAOS/CHAOS_Train_Sets/Train_Sets/chaos_MR_T2_normalized/image_*.nii.gz',
-                          'out_dir': 'E:/Siladittya_JRF/cvpr2024/agun-sona-master/data/CHAOS/CHAOS_Train_Sets/Train_Sets/chaos_MR_T2_normalized',
+                       'img_bname': f'E:\Suyash\cowpro\data\CHAOST2\chaos_MR_T2_normalized/image_*.nii.gz',
+                          'out_dir': 'E:\Suyash\cowpro\data\CHAOST2\chaos_MR_T2_normalized',
                           'fg_thresh': 1e-4 + 50,
                         },
+                        'FLARE22Train':{
+                         'img_bname': f'E:\Suyash\cowpro\data\FLARE22Train\flare_CT_normalized/image_*.nii.gz',
+                          'out_dir': 'E:\Suyash\cowpro\data\FLARE22Train\flare_CT_normalized',
+                          'fg_thresh': 1e-4                     
+                        },
                      }
-
+       # Generate wandb run name if not provided
+    if wandb_run_name is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        wandb_run_name = f"{mode}_{dataset}_fold{eval_fold}_{timestamp}"
 
 @ex.config_hook
 def add_observer(config, command_name, logger):
